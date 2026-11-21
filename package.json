@@ -1,0 +1,16 @@
+{
+  "name": "battleship-mini-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test src/core/engine.test.ts",
+    "typecheck": "tsc --noEmit",
+    "dev:node": "node --env-file=.dev.vars src/adapters/node/server.ts",
+    "dev:cf": "wrangler dev"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}

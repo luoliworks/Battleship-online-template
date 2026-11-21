@@ -1,0 +1,479 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import {
+  applyAction,
+  createInitialState,
+  seatPlayer,
+  validateShips,
+} from "./engine.ts";
+import type { GameState, ShipPlacement } from "./types.ts";
+import { getPlayerView } from "./view.ts";
+
+const P1_SHIPS: ShipPlacement[] = [
+  { id: "s1", x: 0, y: 0, len: 3, dir: "H" }, // (0,0), (1,0), (2,0)
+  { id: "s2", x: 0, y: 2, len: 2, dir: "V" }, // (0,2), (0,3)
+  { id: "s3", x: 4, y: 4, len: 2, dir: "H" }, // (4,4), (5,4)
+];
+
+const P2_SHIPS: ShipPlacement[] = [
+  { id: "s1", x: 3, y: 1, len: 3, dir: "V" }, // (3,1), (3,2), (3,3)
+  { id: "s2", x: 0, y: 5, len: 2, dir: "H" }, // (0,5), (1,5)
+  { id: "s3", x: 5, y: 0, len: 2, dir: "V" }, // (5,0), (5,1)
+];
+
+function setupPlayingState(): GameState {
+  let state = createInitialState(1000);
+  state = seatPlayer(state, "p1", "Alice", 1001);
+  state = seatPlayer(state, "p2", "Bob", 1002);
+
+  const r1 = applyAction(state, "p1", { type: "place_ships", ships: P1_SHIPS }, 1003);
+  assert.equal(r1.ok, true);
+  state = r1.state;
+
+  const r2 = applyAction(state, "p2", { type: "place_ships", ships: P2_SHIPS }, 1004);
+  assert.equal(r2.ok, true);
+  return r2.state;
+}
+
+describe("Pure Battleship Core Engine", () => {
+  it("starts in WAITING, preserves JSON serializability, and enters PLACING once both players seat", () => {
+    const initial = createInitialState(100);
+    assert.equal(initial.phase, "WAITING");
+    assert.equal(initial.round, 1);
+    assert.equal(initial.startingPlayer, "p1");
+    assert.equal(initial.currentTurn, null);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(initial)), initial);
+
+    const afterP1 = seatPlayer(initial, "p1", "Alice", 200);
+    assert.equal(afterP1.phase, "WAITING");
+    assert.equal(afterP1.players.p1.displayName, "Alice");
+    assert.equal(initial.players.p1.displayName, null);
+
+    const afterP2 = seatPlayer(afterP1, "p2", "Bob", 300);
+    assert.equal(afterP2.phase, "PLACING");
+    assert.equal(afterP2.players.p2.displayName, "Bob");
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(afterP2)), afterP2);
+  });
+
+  it("validates ship bounds, overlap, counts, lengths, directions, and IDs", () => {
+    assert.equal(validateShips(P1_SHIPS).ok, true);
+
+    // Horizontal out-of-bounds (x=4, len=3 -> 4,5,6)
+    assert.equal(
+      validateShips([
+        { id: "s1", x: 4, y: 0, len: 3, dir: "H" },
+        { id: "s2", x: 0, y: 2, len: 2, dir: "V" },
+        { id: "s3", x: 4, y: 4, len: 2, dir: "H" },
+      ]).ok,
+      false,
+    );
+
+    // Vertical out-of-bounds (y=5, len=2 -> 5,6)
+    assert.equal(
+      validateShips([
+        { id: "s1", x: 0, y: 0, len: 3, dir: "H" },
+        { id: "s2", x: 0, y: 5, len: 2, dir: "V" },
+        { id: "s3", x: 4, y: 4, len: 2, dir: "H" },
+      ]).ok,
+      false,
+    );
+
+    // Negative coordinate
+    assert.equal(
+      validateShips([
+        { id: "s1", x: -1, y: 0, len: 3, dir: "H" },
+        { id: "s2", x: 0, y: 2, len: 2, dir: "V" },
+        { id: "s3", x: 4, y: 4, len: 2, dir: "H" },
+      ]).ok,
+      false,
+    );
+
+    // Overlap at (1, 0)
+    assert.equal(
+      validateShips([
+        { id: "s1", x: 0, y: 0, len: 3, dir: "H" },
+        { id: "s2", x: 1, y: 0, len: 2, dir: "V" },
+        { id: "s3", x: 4, y: 4, len: 2, dir: "H" },
+      ]).ok,
+      false,
+    );
+
+    // Wrong ship count
+    assert.equal(validateShips(P1_SHIPS.slice(0, 2)).ok, false);
+
+    // Wrong fleet lengths (3, 3, 2 instead of 3, 2, 2)
+    assert.equal(
+      validateShips([
+        { id: "s1", x: 0, y: 0, len: 3, dir: "H" },
+        { id: "s2", x: 0, y: 1, len: 3, dir: "H" },
+        { id: "s3", x: 0, y: 2, len: 2, dir: "H" },
+      ]).ok,
+      false,
+    );
+
+    // Duplicate IDs
+    assert.equal(
+      validateShips([
+        { id: "s1", x: 0, y: 0, len: 3, dir: "H" },
+        { id: "s1", x: 0, y: 2, len: 2, dir: "V" },
+        { id: "s3", x: 4, y: 4, len: 2, dir: "H" },
+      ]).ok,
+      false,
+    );
+
+    // Invalid direction, non-integer coordinate, and oversized length
+    assert.equal(
+      validateShips([
+        { id: "s1", x: 0, y: 0, len: 3, dir: "D" as "H" },
+        { id: "s2", x: 0, y: 2, len: 2, dir: "V" },
+        { id: "s3", x: 4, y: 4, len: 2, dir: "H" },
+      ]).ok,
+      false,
+    );
+    assert.equal(
+      validateShips([
+        { id: "s1", x: 0.5, y: 0, len: 3, dir: "H" },
+        { id: "s2", x: 0, y: 2, len: 2, dir: "V" },
+        { id: "s3", x: 4, y: 4, len: 2, dir: "H" },
+      ]).ok,
+      false,
+    );
+    assert.equal(
+      validateShips([
+        { id: "s1", x: 0, y: 0, len: 999, dir: "H" },
+        { id: "s2", x: 0, y: 2, len: 2, dir: "V" },
+        { id: "s3", x: 4, y: 4, len: 2, dir: "H" },
+      ]).ok,
+      false,
+    );
+  });
+
+  it("locks placement once submitted and rejects modifying or placing out of phase", () => {
+    let state = createInitialState(100);
+    state = seatPlayer(state, "p1", "Alice", 101);
+
+    const earlyPlace = applyAction(
+      state,
+      "p1",
+      { type: "place_ships", ships: P1_SHIPS },
+      102,
+    );
+    assert.equal(earlyPlace.ok, false);
+
+    state = seatPlayer(state, "p2", "Bob", 103);
+    const p1Place = applyAction(
+      state,
+      "p1",
+      { type: "place_ships", ships: P1_SHIPS },
+      104,
+    );
+    assert.equal(p1Place.ok, true);
+    assert.equal(state.players.p1.ready, false);
+    assert.equal(p1Place.state.phase, "PLACING");
+    assert.equal(p1Place.state.players.p1.ready, true);
+
+    // Opponent view during PLACING must not leak p1's already-locked ships
+    const p2ViewDuringPlacing = getPlayerView(p1Place.state, "p2");
+    assert.equal(p2ViewDuringPlacing.opponent.ready, true);
+    assert.deepEqual(p2ViewDuringPlacing.enemyBoard.revealedShips, []);
+    assert.equal(JSON.stringify(p2ViewDuringPlacing.enemyBoard).includes('"s1"'), false);
+
+    const duplicatePlace = applyAction(
+      p1Place.state,
+      "p1",
+      { type: "place_ships", ships: P2_SHIPS },
+      105,
+    );
+    assert.equal(duplicatePlace.ok, false);
+
+    const p2Place = applyAction(
+      p1Place.state,
+      "p2",
+      { type: "place_ships", ships: P2_SHIPS },
+      106,
+    );
+    assert.equal(p2Place.ok, true);
+    assert.equal(p2Place.state.phase, "PLAYING");
+    assert.equal(p2Place.state.currentTurn, "p1");
+  });
+
+  it("enforces turn order, rejects duplicate/out-of-bounds shots, and always alternates turns on miss, hit, and sunk", () => {
+    let state = setupPlayingState();
+    assert.equal(state.currentTurn, "p1");
+
+    // Cannot vote rematch before FINISHED
+    const earlyRematch = applyAction(state, "p1", { type: "rematch" }, 1999);
+    assert.equal(earlyRematch.ok, false);
+
+    // p2 cannot fire on p1's turn
+    const wrongTurn = applyAction(state, "p2", { type: "fire", x: 0, y: 0 }, 2000);
+    assert.equal(wrongTurn.ok, false);
+
+    // Out-of-bounds & non-integer shots
+    const oob = applyAction(state, "p1", { type: "fire", x: 6, y: 0 }, 2001);
+    assert.equal(oob.ok, false);
+    const nonInt = applyAction(state, "p1", { type: "fire", x: 1.5, y: 0 }, 2001);
+    assert.equal(nonInt.ok, false);
+
+    // p1 hits p2's ship s1 at (3,1) -> result is "hit", turn STILL switches to p2
+    const p1Hit = applyAction(state, "p1", { type: "fire", x: 3, y: 1 }, 2002);
+    assert.equal(p1Hit.ok, true);
+    assert.equal(p1Hit.state.lastShot?.result, "hit");
+    assert.equal(p1Hit.state.currentTurn, "p2");
+    state = p1Hit.state;
+
+    // p2 misses at (5,5) -> result is "miss", turn switches back to p1
+    const p2Miss = applyAction(state, "p2", { type: "fire", x: 5, y: 5 }, 2003);
+    assert.equal(p2Miss.ok, true);
+    assert.equal(p2Miss.state.lastShot?.result, "miss");
+    assert.equal(p2Miss.state.currentTurn, "p1");
+    state = p2Miss.state;
+
+    // p1 cannot fire at (3,1) again
+    const dupShot = applyAction(state, "p1", { type: "fire", x: 3, y: 1 }, 2004);
+    assert.equal(dupShot.ok, false);
+
+    // p1 sinks p2's destroyer s3: (5,0) hit -> p2 shoots -> (5,1) sunk -> turn still switches to p2
+    const p1HitS3 = applyAction(state, "p1", { type: "fire", x: 5, y: 0 }, 2005);
+    assert.equal(p1HitS3.ok, true);
+    assert.equal(p1HitS3.state.lastShot?.result, "hit");
+    state = p1HitS3.state;
+
+    const p2Shot2 = applyAction(state, "p2", { type: "fire", x: 5, y: 4 }, 2006);
+    assert.equal(p2Shot2.ok, true);
+    state = p2Shot2.state;
+
+    const p1SinkS3 = applyAction(state, "p1", { type: "fire", x: 5, y: 1 }, 2007);
+    assert.equal(p1SinkS3.ok, true);
+    assert.equal(p1SinkS3.state.lastShot?.result, "sunk");
+    assert.equal(p1SinkS3.state.lastShot?.sunkShipId, "s3");
+    assert.equal(p1SinkS3.state.phase, "PLAYING");
+    assert.equal(p1SinkS3.state.currentTurn, "p2");
+  });
+
+  it("hides un-sunk enemy ships in getPlayerView and reveals sunk ships or full board when finished", () => {
+    let state = setupPlayingState();
+
+    // During PLACING/PLAYING before any sink, neither player view leaks enemy ships
+    const initialP1View = getPlayerView(state, "p1");
+    assert.deepEqual(initialP1View.enemyBoard.revealedShips, []);
+    assert.equal(initialP1View.opponent.shipsRemaining, 3);
+    // Serialize check: P2's ship coordinates at (3,1)/(0,5)/(5,0) must not appear in revealedShips
+    assert.equal(JSON.stringify(initialP1View.enemyBoard).includes('"s1"'), false);
+
+    // p1 hits (3,1) and (3,2) of s1 (length 3), still NOT sunk
+    state = (applyAction(state, "p1", { type: "fire", x: 3, y: 1 }, 3001) as { ok: true; state: GameState }).state;
+    state = (applyAction(state, "p2", { type: "fire", x: 3, y: 3 }, 3002) as { ok: true; state: GameState }).state;
+    state = (applyAction(state, "p1", { type: "fire", x: 3, y: 2 }, 3003) as { ok: true; state: GameState }).state;
+    state = (applyAction(state, "p2", { type: "fire", x: 3, y: 4 }, 3004) as { ok: true; state: GameState }).state;
+
+    const partialHitView = getPlayerView(state, "p1");
+    assert.deepEqual(partialHitView.enemyBoard.revealedShips, []);
+    assert.equal(partialHitView.opponent.shipsRemaining, 3);
+    assert.equal(JSON.stringify(partialHitView.enemyBoard).includes('"s1"'), false);
+
+    // p1 sinks s1 at (3,3) -> now s1 is revealed, s2 & s3 stay hidden
+    state = (applyAction(state, "p1", { type: "fire", x: 3, y: 3 }, 3005) as { ok: true; state: GameState }).state;
+    const afterSinkView = getPlayerView(state, "p1");
+    assert.equal(afterSinkView.enemyBoard.revealedShips.length, 1);
+    assert.equal(afterSinkView.enemyBoard.revealedShips[0]?.id, "s1");
+    assert.equal(afterSinkView.opponent.shipsRemaining, 2);
+
+    // Finish remaining p2 ships: s2=(0,5),(1,5) and s3=(5,0),(5,1)
+    const p1Targets = [
+      { x: 0, y: 5 },
+      { x: 1, y: 5 },
+      { x: 5, y: 0 },
+      { x: 5, y: 1 },
+    ];
+    let p2MissIdx = 0;
+    const p2MissTargets = [
+      { x: 1, y: 1 },
+      { x: 1, y: 2 },
+      { x: 1, y: 3 },
+      { x: 1, y: 4 },
+    ];
+
+    for (let i = 0; i < p1Targets.length; i += 1) {
+      const p2Turn = applyAction(
+        state,
+        "p2",
+        { type: "fire", ...p2MissTargets[p2MissIdx]! },
+        3010 + i * 2,
+      );
+      assert.equal(p2Turn.ok, true);
+      state = p2Turn.state;
+      p2MissIdx += 1;
+
+      const p1Turn = applyAction(
+        state,
+        "p1",
+        { type: "fire", ...p1Targets[i]! },
+        3011 + i * 2,
+      );
+      assert.equal(p1Turn.ok, true);
+      state = p1Turn.state;
+    }
+
+    assert.equal(state.phase, "FINISHED");
+    assert.equal(state.winner, "p1");
+    assert.equal(state.currentTurn, null);
+
+    // After finish, BOTH players see all opponent ships for post-game review
+    const finishedP1View = getPlayerView(state, "p1");
+    const finishedP2View = getPlayerView(state, "p2");
+    assert.equal(finishedP1View.enemyBoard.revealedShips.length, 3);
+    assert.equal(finishedP2View.enemyBoard.revealedShips.length, 3);
+    assert.deepStrictEqual(finishedP2View.enemyBoard.revealedShips, P1_SHIPS);
+
+    // Firing after finish is rejected
+    const lateFire = applyAction(state, "p2", { type: "fire", x: 0, y: 0 }, 4000);
+    assert.equal(lateFire.ok, false);
+  });
+
+  it("requires both players to vote for rematch and rotates startingPlayer across rounds", () => {
+    let state = setupPlayingState();
+
+    // Fast-forward p1 sinking all p2 ships
+    const p1Targets = [
+      { x: 3, y: 1 },
+      { x: 3, y: 2 },
+      { x: 3, y: 3 },
+      { x: 0, y: 5 },
+      { x: 1, y: 5 },
+      { x: 5, y: 0 },
+      { x: 5, y: 1 },
+    ];
+    const p2MissTargets = [
+      { x: 1, y: 1 },
+      { x: 1, y: 2 },
+      { x: 1, y: 3 },
+      { x: 1, y: 4 },
+      { x: 2, y: 2 },
+      { x: 2, y: 3 },
+    ];
+
+    for (let i = 0; i < p1Targets.length; i += 1) {
+      state = (
+        applyAction(state, "p1", { type: "fire", ...p1Targets[i]! }, 4000 + i * 2) as {
+          ok: true;
+          state: GameState;
+        }
+      ).state;
+      if (state.phase === "FINISHED") {
+        break;
+      }
+      state = (
+        applyAction(
+          state,
+          "p2",
+          { type: "fire", ...p2MissTargets[i]! },
+          4001 + i * 2,
+        ) as { ok: true; state: GameState }
+      ).state;
+    }
+
+    assert.equal(state.phase, "FINISHED");
+
+    // First vote keeps FINISHED
+    const vote1 = applyAction(state, "p1", { type: "rematch" }, 5000);
+    assert.equal(vote1.ok, true);
+    assert.equal(vote1.state.phase, "FINISHED");
+    assert.equal(vote1.state.rematchVotes.p1, true);
+    assert.equal(vote1.state.rematchVotes.p2, false);
+
+    // Second vote resets to PLACING and rotates startingPlayer to p2
+    const vote2 = applyAction(vote1.state, "p2", { type: "rematch" }, 5001);
+    assert.equal(vote2.ok, true);
+    const round2 = vote2.state;
+    assert.equal(round2.phase, "PLACING");
+    assert.equal(round2.round, 2);
+    assert.equal(round2.startingPlayer, "p2");
+    assert.equal(round2.currentTurn, null);
+    assert.equal(round2.winner, null);
+    assert.equal(round2.lastShot, null);
+    assert.deepEqual(round2.rematchVotes, { p1: false, p2: false });
+    assert.equal(round2.players.p1.displayName, "Alice");
+    assert.equal(round2.players.p2.displayName, "Bob");
+    assert.deepEqual(round2.players.p1.ships, []);
+    assert.deepEqual(round2.players.p2.ships, []);
+    assert.deepEqual(round2.players.p1.shotsFired, []);
+    assert.deepEqual(round2.players.p2.shotsFired, []);
+    assert.equal(round2.players.p1.ready, false);
+    assert.equal(round2.players.p2.ready, false);
+
+    // Place ships in round 2 -> p2 starts
+    const r2p1 = (
+      applyAction(round2, "p1", { type: "place_ships", ships: P1_SHIPS }, 5002) as {
+        ok: true;
+        state: GameState;
+      }
+    ).state;
+    let r2State = (
+      applyAction(r2p1, "p2", { type: "place_ships", ships: P2_SHIPS }, 5003) as {
+        ok: true;
+        state: GameState;
+      }
+    ).state;
+    assert.equal(r2State.phase, "PLAYING");
+    assert.equal(r2State.currentTurn, "p2");
+
+    // Finish round 2 with p2 winning and verify rematch rotates startingPlayer back to p1
+    const p2Targets = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 2, y: 0 },
+      { x: 0, y: 2 },
+      { x: 0, y: 3 },
+      { x: 4, y: 4 },
+      { x: 5, y: 4 },
+    ];
+    const p1MissTargets = [
+      { x: 0, y: 0 },
+      { x: 0, y: 1 },
+      { x: 0, y: 2 },
+      { x: 0, y: 3 },
+      { x: 0, y: 4 },
+      { x: 2, y: 0 },
+    ];
+
+    for (let i = 0; i < p2Targets.length; i += 1) {
+      r2State = (
+        applyAction(r2State, "p2", { type: "fire", ...p2Targets[i]! }, 6000 + i * 2) as {
+          ok: true;
+          state: GameState;
+        }
+      ).state;
+      if (r2State.phase === "FINISHED") {
+        break;
+      }
+      r2State = (
+        applyAction(
+          r2State,
+          "p1",
+          { type: "fire", ...p1MissTargets[i]! },
+          6001 + i * 2,
+        ) as { ok: true; state: GameState }
+      ).state;
+    }
+
+    assert.equal(r2State.phase, "FINISHED");
+    assert.equal(r2State.winner, "p2");
+
+    const r3Vote1 = (
+      applyAction(r2State, "p2", { type: "rematch" }, 7000) as {
+        ok: true;
+        state: GameState;
+      }
+    ).state;
+    const r3Vote2 = (
+      applyAction(r3Vote1, "p1", { type: "rematch" }, 7001) as {
+        ok: true;
+        state: GameState;
+      }
+    ).state;
+    assert.equal(r3Vote2.phase, "PLACING");
+    assert.equal(r3Vote2.round, 3);
+    assert.equal(r3Vote2.startingPlayer, "p1");
+  });
+});
