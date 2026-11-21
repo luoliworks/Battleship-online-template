@@ -5,14 +5,18 @@
   "type": "module",
   "scripts": {
     "test": "node --test src/core/engine.test.ts src/adapters/node/server.test.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck:node": "tsc --noEmit",
+    "typecheck:cf": "tsc -p tsconfig.cf.json --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.cf.json --noEmit",
     "dev:node": "node --env-file=.dev.vars src/adapters/node/server.ts",
     "dev:cf": "wrangler dev"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261121.1",
     "@types/node": "^26.6.6",
     "@types/ws": "^8.18.2",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "wrangler": "^4.166.0"
   },
   "dependencies": {
     "ws": "^8.23.0"
