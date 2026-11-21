@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Battleship Mini Demo — Admin</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <div id="login-view" class="card auth-card">
+      <h1>Admin 控制台</h1>
+      <p class="muted">请输入管理员口令（ADMIN_TOKEN）以管理房间和邀请码。</p>
+      <div id="login-error" class="alert error hidden"></div>
+      <form id="login-form">
+        <div class="form-group">
+          <label for="admin-token-input">管理员口令</label>
+          <input id="admin-token-input" type="password" autocomplete="current-password" placeholder="输入 ADMIN_TOKEN" required>
+        </div>
+        <div class="between">
+          <button type="submit" class="btn-primary">登录</button>
+          <a href="/" class="muted">返回玩家入口</a>
+        </div>
+      </form>
+    </div>
+
+    <div id="dashboard-view" class="hidden">
+      <div class="between" style="margin-bottom: 16px;">
+        <div>
+          <h1 style="margin-bottom: 4px;">Battleship Admin 控制台</h1>
+          <p class="muted" style="margin: 0;">建房发码、有效期管理、房间重置与销毁（不唤醒休眠房间）</p>
+        </div>
+        <div class="row-actions">
+          <a href="/" class="btn btn-secondary btn-sm">玩家入口</a>
+          <button id="refresh-rooms-btn" type="button" class="btn-secondary btn-sm">刷新列表</button>
+          <button id="logout-btn" type="button" class="btn-secondary btn-sm">退出登录</button>
+        </div>
+      </div>
+
+      <div id="dashboard-feedback" class="alert hidden"></div>
+
+      <div class="card">
+        <h2>创建新房间</h2>
+        <form id="create-room-form" class="grid-form">
+          <div>
+            <label for="room-note-input">备注（可选，最多 100 字）</label>
+            <input id="room-note-input" type="text" maxlength="100" placeholder="例如：好友双排测试">
+          </div>
+          <div>
+            <label for="room-ttl-select">邀请码有效期</label>
+            <select id="room-ttl-select">
+              <option value="1">1 天</option>
+              <option value="3">3 天</option>
+              <option value="7" selected>7 天（默认）</option>
+              <option value="15">15 天</option>
+              <option value="30">30 天</option>
+            </select>
+          </div>
+          <div>
+            <label for="room-max-players-input">人数上限</label>
+            <input id="room-max-players-input" type="number" min="2" value="2" readonly>
+          </div>
+          <div>
+            <button type="submit" class="btn-primary">创建房间并生成邀请码</button>
+          </div>
+        </form>
+
+        <div id="created-room-box" class="alert success hidden" style="margin-top: 14px; margin-bottom: 0;">
+          <div class="between">
+            <div>
+              <strong>已创建房间：</strong>
+              <span id="created-room-code" class="mono"></span>
+              <div id="created-room-link" class="mono" style="margin-top: 4px; font-size: 0.85rem;"></div>
+            </div>
+            <div class="row-actions">
+              <button id="copy-created-link-btn" type="button" class="btn-secondary btn-sm">复制邀请链接</button>
+              <a id="open-created-room-link" href="/" target="_blank" rel="noopener" class="btn btn-primary btn-sm">打开房间</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="between" style="margin-bottom: 12px;">
+          <h2 style="margin: 0;">房间列表</h2>
+          <span id="rooms-count" class="muted"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>邀请码</th>
+                <th>备注</th>
+                <th>人数上限</th>
+                <th>创建时间</th>
+                <th>过期时间</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="rooms-table-body"></tbody>
+          </table>
+        </div>
+        <p id="rooms-empty" class="muted hidden" style="margin: 12px 0 0;">暂无房间，请先创建一个房间。</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/admin.js" defer></script>
+</body>
+</html>

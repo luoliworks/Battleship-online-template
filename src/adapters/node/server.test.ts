@@ -588,4 +588,53 @@ describe("Node.js Adapter Server", () => {
       await handle.close();
     }
   });
+
+  it("serves public static pages/assets and blocks path traversal", async () => {
+    const { handle, baseUrl } = await startTestServer({
+      adminToken: "admin-123",
+    });
+
+    try {
+      const indexRes = await fetch(`${baseUrl}/`);
+      assert.equal(indexRes.status, 200);
+      assert.match(indexRes.headers.get("content-type") ?? "", /text\/html/);
+      const indexHtml = await indexRes.text();
+      assert.match(indexHtml, /Battleship Mini Demo/);
+
+      const adminRedirect = await fetch(`${baseUrl}/admin`, {
+        redirect: "manual",
+      });
+      assert.equal(adminRedirect.status, 302);
+      assert.equal(adminRedirect.headers.get("location"), "/admin.html");
+
+      const adminRes = await fetch(`${baseUrl}/admin.html`);
+      assert.equal(adminRes.status, 200);
+      assert.match(adminRes.headers.get("content-type") ?? "", /text\/html/);
+      const adminHtml = await adminRes.text();
+      assert.match(adminHtml, /Admin/);
+
+      const cssRes = await fetch(`${baseUrl}/styles.css`);
+      assert.equal(cssRes.status, 200);
+      assert.match(cssRes.headers.get("content-type") ?? "", /text\/css/);
+
+      const gameJsRes = await fetch(`${baseUrl}/game.js`);
+      assert.equal(gameJsRes.status, 200);
+      assert.match(
+        gameJsRes.headers.get("content-type") ?? "",
+        /application\/javascript/,
+      );
+
+      const adminJsRes = await fetch(`${baseUrl}/admin.js`);
+      assert.equal(adminJsRes.status, 200);
+      assert.match(
+        adminJsRes.headers.get("content-type") ?? "",
+        /application\/javascript/,
+      );
+
+      const traversalRes = await fetch(`${baseUrl}/%2e%2e%2fpackage.json`);
+      assert.equal(traversalRes.status, 403);
+    } finally {
+      await handle.close();
+    }
+  });
 });
