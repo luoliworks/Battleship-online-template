@@ -40,6 +40,19 @@
   const lockShipsBtn = document.getElementById("lock-ships-btn");
   const rematchBtn = document.getElementById("rematch-btn");
 
+  const placementModal = document.getElementById("placement-modal");
+  const placementModalTitle = document.getElementById("placement-modal-title");
+  const placementModalSubtitle = document.getElementById("placement-modal-subtitle");
+  const placementOppStatus = document.getElementById("placement-opp-status");
+  const placementBoardGrid = document.getElementById("placement-board-grid");
+
+  const resultModal = document.getElementById("result-modal");
+  const resultModalBadge = document.getElementById("result-modal-badge");
+  const resultModalTitle = document.getElementById("result-modal-title");
+  const resultModalSubtitle = document.getElementById("result-modal-subtitle");
+  const resultReviewBtn = document.getElementById("result-review-btn");
+  const resultRematchBtn = document.getElementById("result-rematch-btn");
+
   const myBoardMeta = document.getElementById("my-board-meta");
   const enemyBoardMeta = document.getElementById("enemy-board-meta");
   const myBoardGrid = document.getElementById("my-board-grid");
@@ -57,6 +70,7 @@
   let currentPresence = null;
   let draftShips = null;
   let draftRound = null;
+  let dismissedResultRound = null;
   let manualDisconnect = false;
   let terminalErrorHandled = false;
 
@@ -347,10 +361,14 @@
       presenceText.textContent = i18n.t("game.presenceOffline");
     }
 
-    randomizeShipsBtn.classList.add("hidden");
-    lockShipsBtn.classList.add("hidden");
     rematchBtn.classList.add("hidden");
     rematchBtn.disabled = false;
+    placementModal.classList.add("hidden");
+
+    if (view.phase !== "FINISHED") {
+      dismissedResultRound = null;
+      resultModal.classList.add("hidden");
+    }
 
     const lastShotSummary = formatShotSummary(view);
 
@@ -361,14 +379,34 @@
       });
     } else if (view.phase === "PLACING") {
       if (!view.self.ready) {
-        phaseTitle.textContent = i18n.t("game.phasePlacingTitle", {
+        const placingTitle = i18n.t("game.phasePlacingTitle", {
           round: view.round,
         });
-        phaseSubtitle.textContent = view.opponent.ready
+        const placingSub = view.opponent.ready
           ? i18n.t("game.phasePlacingOppReadySub")
           : i18n.t("game.phasePlacingSub");
-        randomizeShipsBtn.classList.remove("hidden");
-        lockShipsBtn.classList.remove("hidden");
+        phaseTitle.textContent = placingTitle;
+        phaseSubtitle.textContent = placingSub;
+
+        placementModalTitle.textContent = placingTitle;
+        placementModalSubtitle.textContent = placingSub;
+        placementOppStatus.className = view.opponent.ready
+          ? "badge valid"
+          : "badge neutral";
+        placementOppStatus.textContent = view.opponent.ready
+          ? i18n.t("game.oppReadyBadge")
+          : i18n.t("game.oppPlacingBadge");
+
+        renderBoardGrid(placementBoardGrid, {
+          shipCells: new Set(),
+          previewCells: buildCellSet(draftShips || []),
+          sunkCells: new Set(),
+          shotMap: new Map(),
+          lastShotCoord: null,
+          canFire: false,
+          onCellClick: () => {},
+        });
+        placementModal.classList.remove("hidden");
       } else {
         phaseTitle.textContent = i18n.t("game.phaseLockedTitle");
         phaseSubtitle.textContent = i18n.t("game.phaseLockedSub");
@@ -389,20 +427,42 @@
         ? i18n.t("game.phaseWonTitle")
         : i18n.t("game.phaseLostTitle");
 
+      let rematchText = i18n.t("game.rematchBtn");
+      let rematchDisabled = false;
+      let finishedSub = i18n.t("game.phaseFinishedSub", {
+        summary: lastShotSummary,
+      });
+
       if (view.self.rematchVoted && !view.opponent.rematchVoted) {
-        phaseSubtitle.textContent = i18n.t("game.phaseRematchWaitingSub");
-        rematchBtn.textContent = i18n.t("game.rematchWaitingBtn");
-        rematchBtn.disabled = true;
+        finishedSub = i18n.t("game.phaseRematchWaitingSub");
+        rematchText = i18n.t("game.rematchWaitingBtn");
+        rematchDisabled = true;
       } else if (!view.self.rematchVoted && view.opponent.rematchVoted) {
-        phaseSubtitle.textContent = i18n.t("game.phaseRematchOppReadySub");
-        rematchBtn.textContent = i18n.t("game.rematchAcceptBtn");
-      } else {
-        phaseSubtitle.textContent = i18n.t("game.phaseFinishedSub", {
-          summary: lastShotSummary,
-        });
-        rematchBtn.textContent = i18n.t("game.rematchBtn");
+        finishedSub = i18n.t("game.phaseRematchOppReadySub");
+        rematchText = i18n.t("game.rematchAcceptBtn");
       }
+
+      phaseSubtitle.textContent = finishedSub;
+      rematchBtn.textContent = rematchText;
+      rematchBtn.disabled = rematchDisabled;
       rematchBtn.classList.remove("hidden");
+
+      if (dismissedResultRound !== view.round) {
+        resultModalBadge.className = `result-badge ${iWon ? "victory" : "defeat"}`;
+        resultModalBadge.textContent = i18n.t(
+          iWon ? "result.victoryBadge" : "result.defeatBadge",
+          { round: view.round },
+        );
+        resultModalTitle.textContent = i18n.t(
+          iWon ? "result.victoryTitle" : "result.defeatTitle",
+        );
+        resultModalSubtitle.textContent = finishedSub;
+        resultRematchBtn.textContent = rematchText;
+        resultRematchBtn.disabled = rematchDisabled;
+        resultModal.classList.remove("hidden");
+      } else {
+        resultModal.classList.add("hidden");
+      }
     }
 
     const myShipsToShow =
@@ -498,10 +558,13 @@
     currentPresence = null;
     draftShips = null;
     draftRound = null;
+    dismissedResultRound = null;
 
     gameView.classList.add("hidden");
     joinView.classList.remove("hidden");
     disconnectBanner.classList.add("hidden");
+    placementModal.classList.add("hidden");
+    resultModal.classList.add("hidden");
     hideGameToast();
 
     if (currentCode) {
@@ -627,6 +690,8 @@
       }
 
       if (currentView) {
+        placementModal.classList.add("hidden");
+        resultModal.classList.add("hidden");
         disconnectBanner.classList.remove("hidden");
       } else {
         showJoinAlert("error", i18n.t("join.errWsFailed"));
@@ -709,8 +774,24 @@
     sendAction({ type: "place_ships", ships: draftShips });
   });
 
-  rematchBtn.addEventListener("click", () => {
+  function handleRematchClick() {
     sendAction({ type: "rematch" });
+  }
+
+  function dismissResultModal() {
+    if (currentView && currentView.phase === "FINISHED") {
+      dismissedResultRound = currentView.round;
+    }
+    resultModal.classList.add("hidden");
+  }
+
+  rematchBtn.addEventListener("click", handleRematchClick);
+  resultRematchBtn.addEventListener("click", handleRematchClick);
+  resultReviewBtn.addEventListener("click", dismissResultModal);
+  resultModal.addEventListener("click", (event) => {
+    if (event.target === resultModal) {
+      dismissResultModal();
+    }
   });
 
   leaveRoomBtn.addEventListener("click", () => {

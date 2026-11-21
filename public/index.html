@@ -66,8 +66,6 @@
             <div id="phase-subtitle" class="muted"></div>
           </div>
           <div id="action-controls" class="row-actions">
-            <button id="randomize-ships-btn" type="button" class="btn-secondary hidden" data-i18n="game.randomizeBtn">Randomize Fleet</button>
-            <button id="lock-ships-btn" type="button" class="btn-primary hidden" data-i18n="game.lockBtn">Confirm & Lock Fleet</button>
             <button id="rematch-btn" type="button" class="btn-primary hidden" data-i18n="game.rematchBtn">Rematch</button>
           </div>
         </div>
@@ -101,7 +99,36 @@
     </div>
   </div>
 
-  <div id="notice-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="notice-modal-title">
+  <div id="placement-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="placement-modal-title">
+    <div class="modal-card placement-modal-card">
+      <div class="between" style="margin-bottom: 8px;">
+        <h2 id="placement-modal-title" style="margin: 0;">Fleet Placement</h2>
+        <span id="placement-opp-status" class="badge neutral"></span>
+      </div>
+      <p id="placement-modal-subtitle" class="muted" style="margin: 0 0 14px;"></p>
+      <div id="placement-board-grid" class="board-grid"></div>
+      <div class="placement-modal-actions">
+        <div class="row-actions">
+          <button id="randomize-ships-btn" type="button" class="btn-secondary" data-i18n="game.randomizeBtn">Randomize Fleet</button>
+          <button id="lock-ships-btn" type="button" class="btn-primary" data-i18n="game.lockBtn">Confirm & Lock Fleet</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="result-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="result-modal-title">
+    <div class="modal-card result-modal-card">
+      <div id="result-modal-badge" class="result-badge victory"></div>
+      <h2 id="result-modal-title" class="result-title">Victory!</h2>
+      <p id="result-modal-subtitle" class="muted" style="margin: 0;"></p>
+      <div class="result-modal-actions">
+        <button id="result-review-btn" type="button" class="btn-secondary" data-i18n="result.reviewBtn">Review Board</button>
+        <button id="result-rematch-btn" type="button" class="btn-primary" data-i18n="game.rematchBtn">Rematch</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="notice-modal" class="modal-backdrop notice-modal hidden" role="dialog" aria-modal="true" aria-labelledby="notice-modal-title">
     <div class="modal-card">
       <h2 id="notice-modal-title" data-i18n="modal.defaultTitle">Notice</h2>
       <p id="notice-modal-message" style="margin: 0 0 16px;"></p>

@@ -46,6 +46,8 @@
       "game.phasePlacingTitle": "Fleet Placement (Round {round})",
       "game.phasePlacingSub": "Click \"Randomize Fleet\" to roll a layout, then click \"Confirm & Lock Fleet\".",
       "game.phasePlacingOppReadySub": "Opponent is ready! Click \"Randomize Fleet\" to adjust, then lock your fleet.",
+      "game.oppReadyBadge": "Opponent ready",
+      "game.oppPlacingBadge": "Opponent placing...",
       "game.phaseLockedTitle": "Fleet Locked",
       "game.phaseLockedSub": "Waiting for opponent to finish placing ships...",
       "game.phaseYourTurnTitle": "Your Turn! Click Enemy Waters to Fire",
@@ -88,6 +90,12 @@
       "modal.disconnectedTitle": "Room Disconnected",
       "modal.closedTitle": "Connection Closed",
       "modal.okBtn": "OK",
+
+      "result.victoryTitle": "Victory!",
+      "result.defeatTitle": "Defeat",
+      "result.victoryBadge": "🏆 Round {round} Winner",
+      "result.defeatBadge": "💥 Round {round} Over",
+      "result.reviewBtn": "Review Board",
 
       "admin.loginTitle": "Admin Console",
       "admin.loginSubtitle": "Enter the administrator token (ADMIN_TOKEN) to manage rooms and invite codes.",
@@ -202,6 +210,8 @@
       "game.phasePlacingTitle": "布阵阶段（第 {round} 局）",
       "game.phasePlacingSub": "点击“一键随机布阵”生成战舰位置，确认后点击“确认锁定布阵”。",
       "game.phasePlacingOppReadySub": "对手已完成布阵，请点击“一键随机布阵”调整阵型并锁定。",
+      "game.oppReadyBadge": "对手已锁定",
+      "game.oppPlacingBadge": "对手布阵中...",
       "game.phaseLockedTitle": "已锁定布阵",
       "game.phaseLockedSub": "等待对手完成布阵...",
       "game.phaseYourTurnTitle": "轮到你开火！请点击右侧敌方海域",
@@ -244,6 +254,12 @@
       "modal.disconnectedTitle": "房间连接已断开",
       "modal.closedTitle": "连接已关闭",
       "modal.okBtn": "知道了",
+
+      "result.victoryTitle": "你获胜了！",
+      "result.defeatTitle": "惜败",
+      "result.victoryBadge": "🏆 第 {round} 局胜利",
+      "result.defeatBadge": "💥 第 {round} 局结束",
+      "result.reviewBtn": "查看复盘",
 
       "admin.loginTitle": "Admin 控制台",
       "admin.loginSubtitle": "请输入管理员口令（ADMIN_TOKEN）以管理房间和邀请码。",
