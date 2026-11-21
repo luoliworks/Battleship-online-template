@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test src/core/engine.test.ts",
+    "test": "node --test src/core/engine.test.ts src/adapters/node/server.test.ts",
     "typecheck": "tsc --noEmit",
     "dev:node": "node --env-file=.dev.vars src/adapters/node/server.ts",
     "dev:cf": "wrangler dev"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.2",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "ws": "^8.23.0"
   }
 }
