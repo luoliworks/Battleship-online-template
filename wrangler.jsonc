@@ -25,5 +25,22 @@
       "tag": "v1",
       "new_sqlite_classes": ["AdminRegistry", "GameRoom"]
     }
-  ]
+  ],
+  "env": {
+    "dev": {
+      "name": "battleship-mini-demo-dev",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "ADMIN_REGISTRY",
+            "class_name": "AdminRegistry"
+          },
+          {
+            "name": "GAME_ROOM",
+            "class_name": "GameRoom"
+          }
+        ]
+      }
+    }
+  }
 }

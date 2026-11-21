@@ -122,6 +122,19 @@ npm run typecheck
    npx wrangler deploy
    ```
 
+### Isolated Dev Environment (`--env dev`)
+
+[wrangler.jsonc](wrangler.jsonc) defines an isolated `dev` environment (`battleship-mini-demo-dev`) so you can deploy and test another branch (such as `develop`) without overwriting production or sharing Durable Objects data and secrets:
+
+1. Configure the separate dev admin secret once:
+   ```bash
+   npx wrangler secret put ADMIN_TOKEN --env dev
+   ```
+2. Deploy to the isolated dev Worker (`battleship-mini-demo-dev.<your-subdomain>.workers.dev`):
+   ```bash
+   npx wrangler deploy --env dev
+   ```
+
 ### Cloudflare Operational Notes
 
 - `GET /api/admin/rooms` and `GET /api/rooms/:code/check` only query `AdminRegistry` and never instantiate or wake `GameRoom` DOs.
