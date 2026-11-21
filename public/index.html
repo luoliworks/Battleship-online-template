@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,23 +9,26 @@
 <body>
   <div class="container">
     <div id="join-view" class="card auth-card">
-      <h1>Battleship Mini Demo</h1>
-      <p class="muted">6×6 双人海战棋联机验证版（凭邀请码 + 昵称入座，刷新自动恢复）</p>
+      <div class="between" style="margin-bottom: 8px;">
+        <h1 data-i18n="join.title" style="margin: 0;">Battleship Mini Demo</h1>
+        <button type="button" class="btn-secondary btn-sm lang-toggle" data-lang-toggle>🌐 中文</button>
+      </div>
+      <p class="muted" data-i18n="join.subtitle">6×6 2-player online Battleship (invite code + nickname, auto-reconnect on refresh)</p>
 
       <div id="join-alert" class="alert hidden"></div>
 
       <form id="join-form">
         <div class="form-group">
-          <label for="room-code-input">房间邀请码</label>
-          <input id="room-code-input" class="mono" type="text" maxlength="12" placeholder="输入 6 位邀请码，例如 K7X9M2" autocomplete="off" required>
+          <label for="room-code-input" data-i18n="join.codeLabel">Room Invite Code</label>
+          <input id="room-code-input" class="mono" type="text" maxlength="12" data-i18n-placeholder="join.codePlaceholder" placeholder="Enter 6-char code, e.g. K7X9M2" autocomplete="off" required>
         </div>
         <div class="form-group">
-          <label for="nickname-input">玩家昵称（1–20 字符）</label>
-          <input id="nickname-input" type="text" maxlength="20" placeholder="例如：Alice" autocomplete="off" required>
+          <label for="nickname-input" data-i18n="join.nameLabel">Nickname (1–20 chars)</label>
+          <input id="nickname-input" type="text" maxlength="20" data-i18n-placeholder="join.namePlaceholder" placeholder="e.g. Alice" autocomplete="off" required>
         </div>
         <div class="between">
-          <button id="join-submit-btn" type="submit" class="btn-primary">进入房间</button>
-          <a href="/admin.html" class="muted">Admin 控制台</a>
+          <button id="join-submit-btn" type="submit" class="btn-primary" data-i18n="join.submit">Join Room</button>
+          <a href="/admin/" class="muted" data-i18n="join.adminLink">Admin Console</a>
         </div>
       </form>
     </div>
@@ -33,23 +36,24 @@
     <div id="game-view" class="hidden">
       <div class="game-header">
         <div class="header-meta">
-          <span class="pill">房间 <strong id="header-room-code" class="mono"></strong></span>
-          <span class="pill">第 <strong id="header-round">1</strong> 局</span>
+          <span class="pill"><span data-i18n="game.roomPrefix">Room</span> <strong id="header-room-code" class="mono"></strong></span>
+          <span class="pill" id="header-round-pill">Round 1</span>
           <span class="pill" id="header-players"></span>
           <span class="pill">
             <span id="presence-dot" class="presence-dot waiting"></span>
-            <span id="presence-text">等待对手入座...</span>
+            <span id="presence-text" data-i18n="game.presenceWaiting">Waiting for opponent...</span>
           </span>
         </div>
         <div class="row-actions">
-          <button id="leave-room-btn" type="button" class="btn-secondary btn-sm">离开 / 切换昵称</button>
+          <button type="button" class="btn-secondary btn-sm lang-toggle" data-lang-toggle>🌐 中文</button>
+          <button id="leave-room-btn" type="button" class="btn-secondary btn-sm" data-i18n="game.leaveSwitch">Leave / Switch Name</button>
         </div>
       </div>
 
       <div id="disconnect-banner" class="alert warning hidden">
         <div class="between">
-          <span>WebSocket 连接已断开（未启用轮询）。</span>
-          <button id="manual-reconnect-btn" type="button" class="btn-secondary btn-sm">重新连接</button>
+          <span data-i18n="game.disconnectedText">WebSocket disconnected (polling disabled).</span>
+          <button id="manual-reconnect-btn" type="button" class="btn-secondary btn-sm" data-i18n="game.reconnectBtn">Reconnect</button>
         </div>
       </div>
 
@@ -58,13 +62,13 @@
       <div class="card" style="margin-bottom: 16px;">
         <div class="status-bar" style="margin-bottom: 0;">
           <div>
-            <div id="phase-title" class="phase-title">等待玩家入座</div>
+            <div id="phase-title" class="phase-title" data-i18n="game.phaseWaitingTitle">Waiting for Second Player</div>
             <div id="phase-subtitle" class="muted"></div>
           </div>
           <div id="action-controls" class="row-actions">
-            <button id="randomize-ships-btn" type="button" class="btn-secondary hidden">一键随机布阵</button>
-            <button id="lock-ships-btn" type="button" class="btn-primary hidden">确认锁定布阵</button>
-            <button id="rematch-btn" type="button" class="btn-primary hidden">再来一局</button>
+            <button id="randomize-ships-btn" type="button" class="btn-secondary hidden" data-i18n="game.randomizeBtn">Randomize Fleet</button>
+            <button id="lock-ships-btn" type="button" class="btn-primary hidden" data-i18n="game.lockBtn">Confirm & Lock Fleet</button>
+            <button id="rematch-btn" type="button" class="btn-primary hidden" data-i18n="game.rematchBtn">Rematch</button>
           </div>
         </div>
       </div>
@@ -72,41 +76,42 @@
       <div class="boards-grid">
         <section class="board-panel">
           <div class="board-panel-header">
-            <h2 style="margin: 0;">我方海域</h2>
-            <span id="my-board-meta" class="muted">3 艘战舰（共 7 格）</span>
+            <h2 style="margin: 0;" data-i18n="game.myBoardTitle">My Waters</h2>
+            <span id="my-board-meta" class="muted" data-i18n="game.myBoardDefaultMeta">3 ships (7 cells)</span>
           </div>
           <div id="my-board-grid" class="board-grid"></div>
         </section>
 
         <section class="board-panel">
           <div class="board-panel-header">
-            <h2 style="margin: 0;">敌方海域</h2>
-            <span id="enemy-board-meta" class="muted">剩余敌舰：3 艘</span>
+            <h2 style="margin: 0;" data-i18n="game.enemyBoardTitle">Enemy Waters</h2>
+            <span id="enemy-board-meta" class="muted" data-i18n="game.enemyBoardDefaultMeta">Enemy ships left: 3</span>
           </div>
           <div id="enemy-board-grid" class="board-grid"></div>
         </section>
       </div>
 
       <div class="legend">
-        <span class="legend-item"><span class="legend-swatch" style="background: rgba(59, 130, 246, 0.45); border-color: #60a5fa;"></span>我方战舰 / 复盘公开敌舰</span>
-        <span class="legend-item"><span class="legend-swatch" style="background: rgba(2, 132, 199, 0.45); border-color: #38bdf8;"></span>待锁定随机阵型</span>
-        <span class="legend-item"><span class="legend-swatch" style="background: #334155;"></span>○ 落空 (miss)</span>
-        <span class="legend-item"><span class="legend-swatch" style="background: rgba(249, 115, 22, 0.38); border-color: #f97316;"></span>✕ 命中 (hit)</span>
-        <span class="legend-item"><span class="legend-swatch" style="background: rgba(185, 28, 28, 0.7); border-color: #f87171;"></span>☠ 已击沉 (sunk)</span>
+        <span class="legend-item"><span class="legend-swatch" style="background: rgba(59, 130, 246, 0.45); border-color: #60a5fa;"></span><span data-i18n="legend.ship">My Ship / Revealed Enemy Ship</span></span>
+        <span class="legend-item"><span class="legend-swatch" style="background: rgba(2, 132, 199, 0.45); border-color: #38bdf8;"></span><span data-i18n="legend.preview">Random Placement Preview</span></span>
+        <span class="legend-item"><span class="legend-swatch" style="background: #334155;"></span><span data-i18n="legend.miss">○ Miss</span></span>
+        <span class="legend-item"><span class="legend-swatch" style="background: rgba(249, 115, 22, 0.38); border-color: #f97316;"></span><span data-i18n="legend.hit">✕ Hit</span></span>
+        <span class="legend-item"><span class="legend-swatch" style="background: rgba(185, 28, 28, 0.7); border-color: #f87171;"></span><span data-i18n="legend.sunk">☠ Sunk</span></span>
       </div>
     </div>
   </div>
 
   <div id="notice-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="notice-modal-title">
     <div class="modal-card">
-      <h2 id="notice-modal-title">提示</h2>
+      <h2 id="notice-modal-title" data-i18n="modal.defaultTitle">Notice</h2>
       <p id="notice-modal-message" style="margin: 0 0 16px;"></p>
       <div style="text-align: right;">
-        <button id="notice-modal-close" type="button" class="btn-primary">知道了</button>
+        <button id="notice-modal-close" type="button" class="btn-primary" data-i18n="modal.okBtn">OK</button>
       </div>
     </div>
   </div>
 
+  <script src="/i18n.js" defer></script>
   <script src="/game.js" defer></script>
 </body>
 </html>

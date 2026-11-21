@@ -1,4 +1,5 @@
 (() => {
+  const i18n = window.BattleshipI18n;
   const TOKEN_KEY = "battleship_admin_token";
 
   const loginView = document.getElementById("login-view");
@@ -26,6 +27,11 @@
   const logoutBtn = document.getElementById("logout-btn");
 
   let latestCreatedFullUrl = "";
+  let lastRooms = [];
+
+  function updateDocumentTitle() {
+    document.title = i18n.t("title.admin");
+  }
 
   function getToken() {
     return sessionStorage.getItem(TOKEN_KEY) || "";
@@ -61,7 +67,8 @@
   }
 
   function formatTime(ts) {
-    return new Date(ts).toLocaleString();
+    const locale = i18n.getLang() === "zh" ? "zh-CN" : "en-US";
+    return new Date(ts).toLocaleString(locale);
   }
 
   async function copyText(text) {
@@ -86,9 +93,9 @@
     const url = `${location.origin}/?code=${encodeURIComponent(code)}`;
     try {
       await copyText(url);
-      showFeedback("success", `已复制房间 ${code} 的邀请链接：${url}`);
+      showFeedback("success", i18n.t("admin.copiedMsg", { code, url }));
     } catch {
-      window.prompt("复制以下邀请链接：", url);
+      window.prompt(i18n.t("admin.copyPrompt"), url);
     }
   }
 
@@ -120,8 +127,9 @@
   }
 
   function renderRooms(rooms) {
+    lastRooms = rooms;
     roomsTableBody.replaceChildren();
-    roomsCount.textContent = `共 ${rooms.length} 个房间`;
+    roomsCount.textContent = i18n.t("admin.roomsCount", { count: rooms.length });
 
     if (rooms.length === 0) {
       roomsEmpty.classList.remove("hidden");
@@ -156,7 +164,9 @@
       const statusTd = document.createElement("td");
       const badge = document.createElement("span");
       badge.className = `badge ${room.expired ? "expired" : "valid"}`;
-      badge.textContent = room.expired ? "已过期" : "有效";
+      badge.textContent = room.expired
+        ? i18n.t("admin.statusExpired")
+        : i18n.t("admin.statusValid");
       statusTd.appendChild(badge);
       tr.appendChild(statusTd);
 
@@ -167,7 +177,7 @@
       const copyBtn = document.createElement("button");
       copyBtn.type = "button";
       copyBtn.className = "btn-secondary btn-sm";
-      copyBtn.textContent = "复制链接";
+      copyBtn.textContent = i18n.t("admin.rowCopy");
       copyBtn.addEventListener("click", () => {
         void copyJoinLink(room.code);
       });
@@ -178,13 +188,13 @@
       openLink.target = "_blank";
       openLink.rel = "noopener";
       openLink.className = "btn btn-secondary btn-sm";
-      openLink.textContent = "打开";
+      openLink.textContent = i18n.t("admin.rowOpen");
       actionsWrap.appendChild(openLink);
 
       const resetBtn = document.createElement("button");
       resetBtn.type = "button";
       resetBtn.className = "btn-secondary btn-sm";
-      resetBtn.textContent = "重置";
+      resetBtn.textContent = i18n.t("admin.rowReset");
       resetBtn.addEventListener("click", () => {
         void handleResetRoom(room.code);
       });
@@ -193,7 +203,7 @@
       const destroyBtn = document.createElement("button");
       destroyBtn.type = "button";
       destroyBtn.className = "btn-danger btn-sm";
-      destroyBtn.textContent = "销毁";
+      destroyBtn.textContent = i18n.t("admin.rowDestroy");
       destroyBtn.addEventListener("click", () => {
         void handleDestroyRoom(room.code);
       });
@@ -208,11 +218,14 @@
   async function loadRooms() {
     const { res, data } = await apiFetch("/api/admin/rooms");
     if (res.status === 401) {
-      switchToLogin(data.message || "管理员认证失败，请重新登录");
+      switchToLogin(i18n.formatError(data.code, i18n.t("admin.errAuthFailed")));
       return false;
     }
     if (!res.ok) {
-      showFeedback("error", data.message || "加载房间列表失败");
+      showFeedback(
+        "error",
+        i18n.formatError(data.code, data.message || i18n.t("admin.errLoadRooms")),
+      );
       return false;
     }
 
@@ -224,7 +237,7 @@
   }
 
   async function handleResetRoom(code) {
-    if (!window.confirm(`确认重置房间 ${code}？在线玩家将被断开，邀请码保持有效。`)) {
+    if (!window.confirm(i18n.t("admin.confirmReset", { code }))) {
       return;
     }
     const { res, data } = await apiFetch(
@@ -232,19 +245,22 @@
       { method: "POST" },
     );
     if (res.status === 401) {
-      switchToLogin(data.message || "管理员认证失败");
+      switchToLogin(i18n.formatError(data.code, i18n.t("admin.errAuthFailed")));
       return;
     }
     if (!res.ok) {
-      showFeedback("error", data.message || "重置房间失败");
+      showFeedback(
+        "error",
+        i18n.formatError(data.code, data.message || i18n.t("admin.errReset")),
+      );
       return;
     }
-    showFeedback("info", `房间 ${code} 已重置为空房待入座状态（邀请码保留有效）。`);
+    showFeedback("info", i18n.t("admin.resetDone", { code }));
     await loadRooms();
   }
 
   async function handleDestroyRoom(code) {
-    if (!window.confirm(`确认彻底销毁房间 ${code}？该邀请码将立即失效。`)) {
+    if (!window.confirm(i18n.t("admin.confirmDestroy", { code }))) {
       return;
     }
     const { res, data } = await apiFetch(
@@ -252,17 +268,20 @@
       { method: "DELETE" },
     );
     if (res.status === 401) {
-      switchToLogin(data.message || "管理员认证失败");
+      switchToLogin(i18n.formatError(data.code, i18n.t("admin.errAuthFailed")));
       return;
     }
     if (!res.ok) {
-      showFeedback("error", data.message || "销毁房间失败");
+      showFeedback(
+        "error",
+        i18n.formatError(data.code, data.message || i18n.t("admin.errDestroy")),
+      );
       return;
     }
     if (createdRoomCode.textContent === code) {
       createdRoomBox.classList.add("hidden");
     }
-    showFeedback("info", `房间 ${code} 已销毁，邀请码已失效。`);
+    showFeedback("info", i18n.t("admin.destroyDone", { code }));
     await loadRooms();
   }
 
@@ -270,7 +289,7 @@
     event.preventDefault();
     const token = tokenInput.value.trim();
     if (!token) {
-      showLoginError("请输入管理员口令");
+      showLoginError(i18n.t("admin.errEmptyToken"));
       return;
     }
     setToken(token);
@@ -294,11 +313,14 @@
     });
 
     if (res.status === 401) {
-      switchToLogin(data.message || "管理员认证失败");
+      switchToLogin(i18n.formatError(data.code, i18n.t("admin.errAuthFailed")));
       return;
     }
     if (!res.ok) {
-      showFeedback("error", data.message || "创建房间失败");
+      showFeedback(
+        "error",
+        i18n.formatError(data.code, data.message || i18n.t("admin.errCreateRoom")),
+      );
       return;
     }
 
@@ -309,7 +331,7 @@
     openCreatedRoomLink.href = data.joinUrl;
     createdRoomBox.classList.remove("hidden");
 
-    showFeedback("success", `成功创建房间 ${data.code}`);
+    showFeedback("success", i18n.t("admin.createdMsg", { code: data.code }));
     await loadRooms();
   });
 
@@ -319,9 +341,15 @@
     }
     try {
       await copyText(latestCreatedFullUrl);
-      showFeedback("success", `已复制邀请链接：${latestCreatedFullUrl}`);
+      showFeedback(
+        "success",
+        i18n.t("admin.copiedMsg", {
+          code: createdRoomCode.textContent,
+          url: latestCreatedFullUrl,
+        }),
+      );
     } catch {
-      window.prompt("复制以下邀请链接：", latestCreatedFullUrl);
+      window.prompt(i18n.t("admin.copyPrompt"), latestCreatedFullUrl);
     }
   });
 
@@ -333,6 +361,15 @@
   logoutBtn.addEventListener("click", () => {
     switchToLogin("");
     hideLoginError();
+  });
+
+  i18n.applyDom();
+  updateDocumentTitle();
+  i18n.onChange(() => {
+    updateDocumentTitle();
+    if (!dashboardView.classList.contains("hidden")) {
+      renderRooms(lastRooms);
+    }
   });
 
   if (getToken()) {

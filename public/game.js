@@ -1,4 +1,5 @@
 (() => {
+  const i18n = window.BattleshipI18n;
   const SESSION_KEY = "battleship_session";
   const BOARD_SIZE = 6;
   const FLEET_SPEC = [
@@ -7,11 +8,11 @@
     { id: "s3", len: 2 },
   ];
 
-  const CLOSE_MESSAGES = {
-    4001: "房间已满，请联系 Admin",
-    4002: "同名玩家已在其他设备或窗口接入",
-    4003: "管理员已重置房间，请重新进入",
-    4004: "管理员已销毁该房间",
+  const CLOSE_ERROR_CODES = {
+    4001: "ROOM_FULL",
+    4002: "REPLACED_BY_NEW_SESSION",
+    4003: "ROOM_RESET",
+    4004: "ROOM_CLOSED",
   };
 
   const joinView = document.getElementById("join-view");
@@ -23,7 +24,7 @@
   const joinAlert = document.getElementById("join-alert");
 
   const headerRoomCode = document.getElementById("header-room-code");
-  const headerRound = document.getElementById("header-round");
+  const headerRoundPill = document.getElementById("header-round-pill");
   const headerPlayers = document.getElementById("header-players");
   const presenceDot = document.getElementById("presence-dot");
   const presenceText = document.getElementById("presence-text");
@@ -58,6 +59,10 @@
   let draftRound = null;
   let manualDisconnect = false;
   let terminalErrorHandled = false;
+
+  function updateDocumentTitle() {
+    document.title = i18n.t("title.player");
+  }
 
   function readSession() {
     try {
@@ -240,7 +245,7 @@
         const cellBtn = document.createElement("button");
         cellBtn.type = "button";
         cellBtn.className = "cell";
-        cellBtn.setAttribute("aria-label", `坐标 (${x}, ${y})`);
+        cellBtn.setAttribute("aria-label", i18n.t("game.cellAria", { x, y }));
 
         const shot = shotMap.get(key);
         const hasShip = shipCells.has(key);
@@ -293,15 +298,20 @@
     }
     const actor =
       shot.by === view.self.id
-        ? view.self.displayName || "我方"
-        : view.opponent.displayName || "对手";
+        ? view.self.displayName || i18n.t("game.actorSelf")
+        : view.opponent.displayName || i18n.t("game.actorOpp");
     const resultText =
       shot.result === "miss"
-        ? "落空"
+        ? i18n.t("game.resultMiss")
         : shot.result === "hit"
-          ? "命中"
-          : "击沉一艘战舰！";
-    return `上一手：${actor} 攻击 (${shot.x}, ${shot.y}) → ${resultText}`;
+          ? i18n.t("game.resultHit")
+          : i18n.t("game.resultSunk");
+    return i18n.t("game.shotSummary", {
+      actor,
+      x: shot.x,
+      y: shot.y,
+      result: resultText,
+    });
   }
 
   function renderGame() {
@@ -316,21 +326,25 @@
     };
 
     headerRoomCode.textContent = currentCode;
-    headerRound.textContent = String(view.round);
+    headerRoundPill.textContent = i18n.t("game.roundText", { round: view.round });
 
     const selfName = view.self.displayName || currentNickname;
-    const oppName = view.opponent.displayName || "等待对手";
-    headerPlayers.textContent = `${selfName} vs ${oppName}`;
+    const oppName =
+      view.opponent.displayName || i18n.t("game.waitingOpponentName");
+    headerPlayers.textContent = i18n.t("game.vsPlayers", {
+      self: selfName,
+      opponent: oppName,
+    });
 
     if (!view.opponent.displayName) {
       presenceDot.className = "presence-dot waiting";
-      presenceText.textContent = "等待对手入座...";
+      presenceText.textContent = i18n.t("game.presenceWaiting");
     } else if (presence.opponentOnline) {
       presenceDot.className = "presence-dot online";
-      presenceText.textContent = "对手在线";
+      presenceText.textContent = i18n.t("game.presenceOnline");
     } else {
       presenceDot.className = "presence-dot offline";
-      presenceText.textContent = "对手已离线（等待重连...）";
+      presenceText.textContent = i18n.t("game.presenceOffline");
     }
 
     randomizeShipsBtn.classList.add("hidden");
@@ -341,42 +355,52 @@
     const lastShotSummary = formatShotSummary(view);
 
     if (view.phase === "WAITING") {
-      phaseTitle.textContent = "等待第二名玩家加入";
-      phaseSubtitle.textContent = `请把邀请码 ${currentCode} 或当前页面链接发送给对手。`;
+      phaseTitle.textContent = i18n.t("game.phaseWaitingTitle");
+      phaseSubtitle.textContent = i18n.t("game.phaseWaitingSub", {
+        code: currentCode,
+      });
     } else if (view.phase === "PLACING") {
       if (!view.self.ready) {
-        phaseTitle.textContent = `布阵阶段（第 ${view.round} 局）`;
+        phaseTitle.textContent = i18n.t("game.phasePlacingTitle", {
+          round: view.round,
+        });
         phaseSubtitle.textContent = view.opponent.ready
-          ? "对手已完成布阵，请点击“一键随机布阵”调整阵型并锁定。"
-          : "点击“一键随机布阵”生成战舰位置，确认后点击“确认锁定布阵”。";
+          ? i18n.t("game.phasePlacingOppReadySub")
+          : i18n.t("game.phasePlacingSub");
         randomizeShipsBtn.classList.remove("hidden");
         lockShipsBtn.classList.remove("hidden");
       } else {
-        phaseTitle.textContent = "已锁定布阵";
-        phaseSubtitle.textContent = "等待对手完成布阵...";
+        phaseTitle.textContent = i18n.t("game.phaseLockedTitle");
+        phaseSubtitle.textContent = i18n.t("game.phaseLockedSub");
       }
     } else if (view.phase === "PLAYING") {
       const isMyTurn = view.currentTurn === view.self.id;
       phaseTitle.textContent = isMyTurn
-        ? "轮到你开火！请点击右侧敌方海域"
-        : `等待 ${oppName} 开火...`;
+        ? i18n.t("game.phaseYourTurnTitle")
+        : i18n.t("game.phaseOppTurnTitle", { opponent: oppName });
       phaseSubtitle.textContent =
         lastShotSummary ||
-        `本局先手：${view.startingPlayer === view.self.id ? selfName : oppName}`;
+        i18n.t("game.phaseStarterSub", {
+          starter: view.startingPlayer === view.self.id ? selfName : oppName,
+        });
     } else if (view.phase === "FINISHED") {
       const iWon = view.winner === view.self.id;
-      phaseTitle.textContent = iWon ? "对局结束：你获胜了！" : "对局结束：对手获胜";
+      phaseTitle.textContent = iWon
+        ? i18n.t("game.phaseWonTitle")
+        : i18n.t("game.phaseLostTitle");
 
       if (view.self.rematchVoted && !view.opponent.rematchVoted) {
-        phaseSubtitle.textContent = "等待对手确认再来一局...";
-        rematchBtn.textContent = "已确认（等待对手）";
+        phaseSubtitle.textContent = i18n.t("game.phaseRematchWaitingSub");
+        rematchBtn.textContent = i18n.t("game.rematchWaitingBtn");
         rematchBtn.disabled = true;
       } else if (!view.self.rematchVoted && view.opponent.rematchVoted) {
-        phaseSubtitle.textContent = "对手已发起再来一局，点击确认立即开始下一局（将轮换先手）！";
-        rematchBtn.textContent = "确认再来一局";
+        phaseSubtitle.textContent = i18n.t("game.phaseRematchOppReadySub");
+        rematchBtn.textContent = i18n.t("game.rematchAcceptBtn");
       } else {
-        phaseSubtitle.textContent = `${lastShotSummary} 敌方完整棋盘已公开复盘。`;
-        rematchBtn.textContent = "再来一局";
+        phaseSubtitle.textContent = i18n.t("game.phaseFinishedSub", {
+          summary: lastShotSummary,
+        });
+        rematchBtn.textContent = i18n.t("game.rematchBtn");
       }
       rematchBtn.classList.remove("hidden");
     }
@@ -393,14 +417,16 @@
     myBoardMeta.textContent =
       view.phase === "PLACING"
         ? view.self.ready
-          ? "已锁定"
-          : "待锁定（随机预览）"
-        : `${selfName} 的舰队`;
+          ? i18n.t("game.myBoardLocked")
+          : i18n.t("game.myBoardPreview")
+        : i18n.t("game.myBoardFleet", { name: selfName });
 
     enemyBoardMeta.textContent =
       view.phase === "FINISHED"
-        ? "完整舰队已公开复盘"
-        : `剩余敌舰：${view.opponent.shipsRemaining} 艘`;
+        ? i18n.t("game.enemyBoardRevealed")
+        : i18n.t("game.enemyBoardRemaining", {
+            count: view.opponent.shipsRemaining,
+          });
 
     const lastShotForMyBoard =
       view.lastShot && view.lastShot.by !== view.self.id ? view.lastShot : null;
@@ -436,7 +462,7 @@
 
   function sendAction(action) {
     if (!activeSocket || activeSocket.readyState !== WebSocket.OPEN) {
-      showGameToast("error", "当前未连接到房间，请先重连");
+      showGameToast("error", i18n.t("game.notConnected"));
       return;
     }
     hideGameToast();
@@ -493,7 +519,7 @@
     }
 
     if (modalMessage) {
-      showNoticeModal(modalTitle || "连接提示", modalMessage);
+      showNoticeModal(modalTitle || i18n.t("modal.defaultTitle"), modalMessage);
     }
   }
 
@@ -555,22 +581,23 @@
       }
 
       if (payload.type === "error") {
+        const localizedMsg = i18n.formatError(payload.code, payload.message);
         if (payload.code === "INVALID_ACTION") {
-          showGameToast("error", payload.message || "操作无效");
+          showGameToast("error", localizedMsg);
           return;
         }
 
         terminalErrorHandled = true;
         returnToJoinScreen({
           alertType: "error",
-          alertMessage: payload.message || "连接被服务端拒绝",
+          alertMessage: localizedMsg,
           modalTitle:
             payload.code === "ROOM_FULL"
-              ? "房间已满"
+              ? i18n.t("modal.roomFullTitle")
               : payload.code === "REPLACED_BY_NEW_SESSION"
-                ? "账号已在其他窗口接入"
-                : "房间连接已断开",
-          modalMessage: payload.message || "连接已断开",
+                ? i18n.t("modal.replacedTitle")
+                : i18n.t("modal.disconnectedTitle"),
+          modalMessage: localizedMsg,
           clearSavedSession: true,
         });
       }
@@ -586,12 +613,13 @@
         return;
       }
 
-      const knownMsg = CLOSE_MESSAGES[event.code];
-      if (knownMsg) {
+      const knownCode = CLOSE_ERROR_CODES[event.code];
+      if (knownCode) {
+        const knownMsg = i18n.formatError(knownCode);
         returnToJoinScreen({
           alertType: "error",
           alertMessage: knownMsg,
-          modalTitle: "连接已关闭",
+          modalTitle: i18n.t("modal.closedTitle"),
           modalMessage: knownMsg,
           clearSavedSession: true,
         });
@@ -601,7 +629,7 @@
       if (currentView) {
         disconnectBanner.classList.remove("hidden");
       } else {
-        showJoinAlert("error", "WebSocket 连接失败，请确认邀请码与服务状态后重试。");
+        showJoinAlert("error", i18n.t("join.errWsFailed"));
       }
     });
   }
@@ -612,11 +640,11 @@
     const nickname = rawNickname.trim();
 
     if (!code) {
-      showJoinAlert("error", "请输入房间邀请码");
+      showJoinAlert("error", i18n.t("join.errEmptyCode"));
       return;
     }
     if (nickname.length < 1 || nickname.length > 20) {
-      showJoinAlert("error", "昵称长度需为 1–20 个字符");
+      showJoinAlert("error", i18n.t("join.errNameLen"));
       return;
     }
 
@@ -624,19 +652,20 @@
     joinSubmitBtn.disabled = true;
 
     try {
-      const res = await fetch(
-        `/api/rooms/${encodeURIComponent(code)}/check`,
-      );
+      const res = await fetch(`/api/rooms/${encodeURIComponent(code)}/check`);
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok || !data.ok) {
         if (isAutoReconnect && (res.status === 404 || res.status === 410)) {
           clearSession();
         }
-        const msg = data.message || "邀请码无效或已过期";
+        const msg = i18n.formatError(
+          data.code,
+          data.message || i18n.t("join.errInvalidOrExpired"),
+        );
         showJoinAlert("error", msg);
         if (!isAutoReconnect) {
-          showNoticeModal("无法进入房间", msg);
+          showNoticeModal(i18n.t("modal.cannotJoinTitle"), msg);
         }
         return;
       }
@@ -652,7 +681,7 @@
 
       openRoomWebSocket(currentCode, currentNickname);
     } catch {
-      showJoinAlert("error", "网络请求失败，请检查服务是否已启动");
+      showJoinAlert("error", i18n.t("join.errNetwork"));
     } finally {
       joinSubmitBtn.disabled = false;
     }
@@ -688,7 +717,7 @@
     manualDisconnect = true;
     returnToJoinScreen({
       alertType: "info",
-      alertMessage: "已离开房间，可更换昵称或邀请码重新加入。",
+      alertMessage: i18n.t("join.leftRoom"),
       clearNickname: true,
       clearSavedSession: true,
     });
@@ -705,6 +734,13 @@
     if (event.target === noticeModal) {
       hideNoticeModal();
     }
+  });
+
+  i18n.applyDom();
+  updateDocumentTitle();
+  i18n.onChange(() => {
+    updateDocumentTitle();
+    renderGame();
   });
 
   // Startup: resolve URL ?code= and sessionStorage

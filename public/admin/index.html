@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Battleship Mini Demo — Admin</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <div id="login-view" class="card auth-card">
+      <div class="between" style="margin-bottom: 8px;">
+        <h1 data-i18n="admin.loginTitle" style="margin: 0;">Admin Console</h1>
+        <button type="button" class="btn-secondary btn-sm lang-toggle" data-lang-toggle>🌐 中文</button>
+      </div>
+      <p class="muted" data-i18n="admin.loginSubtitle">Enter the administrator token (ADMIN_TOKEN) to manage rooms and invite codes.</p>
+      <div id="login-error" class="alert error hidden"></div>
+      <form id="login-form">
+        <div class="form-group">
+          <label for="admin-token-input" data-i18n="admin.tokenLabel">Admin Token</label>
+          <input id="admin-token-input" type="password" autocomplete="current-password" data-i18n-placeholder="admin.tokenPlaceholder" placeholder="Enter ADMIN_TOKEN" required>
+        </div>
+        <div class="between">
+          <button type="submit" class="btn-primary" data-i18n="admin.loginBtn">Sign In</button>
+          <a href="/" class="muted" data-i18n="admin.backPlayer">Player Entry</a>
+        </div>
+      </form>
+    </div>
+
+    <div id="dashboard-view" class="hidden">
+      <div class="between" style="margin-bottom: 16px;">
+        <div>
+          <h1 style="margin-bottom: 4px;" data-i18n="admin.dashTitle">Battleship Admin Console</h1>
+          <p class="muted" style="margin: 0;" data-i18n="admin.dashSubtitle">Create invite codes, configure TTL, reset or destroy rooms (zero DO wakeups on list)</p>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="btn-secondary btn-sm lang-toggle" data-lang-toggle>🌐 中文</button>
+          <a href="/" class="btn btn-secondary btn-sm" data-i18n="admin.playerEntryBtn">Player Entry</a>
+          <button id="refresh-rooms-btn" type="button" class="btn-secondary btn-sm" data-i18n="admin.refreshBtn">Refresh</button>
+          <button id="logout-btn" type="button" class="btn-secondary btn-sm" data-i18n="admin.logoutBtn">Sign Out</button>
+        </div>
+      </div>
+
+      <div id="dashboard-feedback" class="alert hidden"></div>
+
+      <div class="card">
+        <h2 data-i18n="admin.createTitle">Create New Room</h2>
+        <form id="create-room-form" class="grid-form">
+          <div>
+            <label for="room-note-input" data-i18n="admin.noteLabel">Note (optional, max 100 chars)</label>
+            <input id="room-note-input" type="text" maxlength="100" data-i18n-placeholder="admin.notePlaceholder" placeholder="e.g. Friend match test">
+          </div>
+          <div>
+            <label for="room-ttl-select" data-i18n="admin.ttlLabel">Invite Code TTL</label>
+            <select id="room-ttl-select">
+              <option value="1" data-i18n="admin.ttl1">1 Day</option>
+              <option value="3" data-i18n="admin.ttl3">3 Days</option>
+              <option value="7" selected data-i18n="admin.ttl7">7 Days (Default)</option>
+              <option value="15" data-i18n="admin.ttl15">15 Days</option>
+              <option value="30" data-i18n="admin.ttl30">30 Days</option>
+            </select>
+          </div>
+          <div>
+            <label for="room-max-players-input" data-i18n="admin.maxPlayersLabel">Max Players</label>
+            <input id="room-max-players-input" type="number" min="2" value="2" readonly>
+          </div>
+          <div>
+            <button type="submit" class="btn-primary" data-i18n="admin.createBtn">Create Room & Code</button>
+          </div>
+        </form>
+
+        <div id="created-room-box" class="alert success hidden" style="margin-top: 14px; margin-bottom: 0;">
+          <div class="between">
+            <div>
+              <strong data-i18n="admin.createdLabel">Room Created:</strong>
+              <span id="created-room-code" class="mono"></span>
+              <div id="created-room-link" class="mono" style="margin-top: 4px; font-size: 0.85rem;"></div>
+            </div>
+            <div class="row-actions">
+              <button id="copy-created-link-btn" type="button" class="btn-secondary btn-sm" data-i18n="admin.copyLinkBtn">Copy Invite Link</button>
+              <a id="open-created-room-link" href="/" target="_blank" rel="noopener" class="btn btn-primary btn-sm" data-i18n="admin.openRoomBtn">Open Room</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="between" style="margin-bottom: 12px;">
+          <h2 style="margin: 0;" data-i18n="admin.roomsListTitle">Rooms</h2>
+          <span id="rooms-count" class="muted"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th data-i18n="admin.colCode">Code</th>
+                <th data-i18n="admin.colNote">Note</th>
+                <th data-i18n="admin.colMaxPlayers">Max Players</th>
+                <th data-i18n="admin.colCreated">Created</th>
+                <th data-i18n="admin.colExpires">Expires</th>
+                <th data-i18n="admin.colStatus">Status</th>
+                <th data-i18n="admin.colActions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="rooms-table-body"></tbody>
+          </table>
+        </div>
+        <p id="rooms-empty" class="muted hidden" style="margin: 12px 0 0;" data-i18n="admin.roomsEmpty">No rooms yet. Create one above.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/i18n.js" defer></script>
+  <script src="/admin.js" defer></script>
+</body>
+</html>

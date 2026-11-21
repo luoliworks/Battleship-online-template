@@ -605,9 +605,15 @@ describe("Node.js Adapter Server", () => {
         redirect: "manual",
       });
       assert.equal(adminRedirect.status, 302);
-      assert.equal(adminRedirect.headers.get("location"), "/admin.html");
+      assert.equal(adminRedirect.headers.get("location"), "/admin/");
 
-      const adminRes = await fetch(`${baseUrl}/admin.html`);
+      const adminHtmlRedirect = await fetch(`${baseUrl}/admin.html`, {
+        redirect: "manual",
+      });
+      assert.equal(adminHtmlRedirect.status, 302);
+      assert.equal(adminHtmlRedirect.headers.get("location"), "/admin/");
+
+      const adminRes = await fetch(`${baseUrl}/admin/`);
       assert.equal(adminRes.status, 200);
       assert.match(adminRes.headers.get("content-type") ?? "", /text\/html/);
       const adminHtml = await adminRes.text();
@@ -628,6 +634,13 @@ describe("Node.js Adapter Server", () => {
       assert.equal(adminJsRes.status, 200);
       assert.match(
         adminJsRes.headers.get("content-type") ?? "",
+        /application\/javascript/,
+      );
+
+      const i18nJsRes = await fetch(`${baseUrl}/i18n.js`);
+      assert.equal(i18nJsRes.status, 200);
+      assert.match(
+        i18nJsRes.headers.get("content-type") ?? "",
         /application\/javascript/,
       );
 

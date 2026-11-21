@@ -403,13 +403,14 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
       return;
     }
 
-    if (pathname === "/admin") {
-      res.writeHead(302, { Location: "/admin.html" });
+    if (pathname === "/admin" || pathname === "/admin.html") {
+      res.writeHead(302, { Location: "/admin/" });
       res.end();
       return;
     }
 
-    const relativePath = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+    const mappedPathname = pathname.endsWith("/") ? `${pathname}index.html` : pathname;
+    const relativePath = mappedPathname.replace(/^\/+/, "");
     let decodedPath: string;
     try {
       decodedPath = decodeURIComponent(relativePath);
