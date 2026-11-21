@@ -1,6 +1,6 @@
-# **Battleship Mini Demo — Technical GDD (v0.2 Final)**
+# **Battleship Mini Demo — Technical GDD (v0.3)**
 
-**文档定位**：面向 AI 编程工具（Antigravity）的工程级游戏设计文档（定稿版），完整定义极简 6×6 海战棋双人联机 Demo 的玩法规则、前后端架构约束、通信协议、Cloudflare/Node.js 双端适配方案、环境配置与验收标准。  
+**文档定位**：面向 AI 编程工具（Antigravity）的工程级游戏设计文档（已与当前实现同步），完整定义极简 6×6 海战棋双人联机 Demo 的玩法规则、前后端架构约束、通信协议、多语言与弹窗交互、Cloudflare/Node.js 双端适配方案、环境配置与验收标准。  
 **日期**：2026-11-21  
 ---
 
@@ -14,6 +14,8 @@
   * 断线重连顶号与满员拦截  
   * 基于“昵称绑定 \+ `sessionStorage`”的刷新重连、跨设备找回座位、同浏览器双开自测与满员拦截  
   * 对手在线状态实时指示  
+  * 中英文双语 UI（英文默认 \+ 实时切换）与关键阶段弹窗体验（布阵弹窗 / 结算弹窗）  
+  * Cloudflare 生产环境与 `dev` 隔离环境（`--env dev`）双环境部署支持  
   * 纯游戏逻辑内核与底层平台外壳彻底解耦（便于后续将 `src/core/` 替换为 Tower Chess 或其他回合制/策略游戏）
 
 ---
@@ -24,13 +26,13 @@
 * **棋盘与舰队**：  
   * 双方各持有一块 **6×6** 棋盘（坐标 `x: 0..5, y: 0..5`）。  
   * 每人 **3 艘船**：巡洋舰（长度 3）、驱逐舰 A（长度 2）、驱逐舰 B（长度 2），总计 7 格血量。  
-  * 摆放规则：仅允许水平（`H`）或垂直（`V`）放置，不可越界、不可重叠。前端提供“一键随机布阵”按钮方便快速演示。  
+  * 摆放规则：仅允许水平（`H`）或垂直（`V`）放置，不可越界、不可重叠。当前 MVP 前端采用**居中布阵弹窗 \+ 6×6 实时预览**，仅提供 `Randomize Fleet`（一键随机布阵）与 `Confirm & Lock Fleet`（确认锁定）交互（不支持手动拖拽/点选放船）。  
 * **开火规则**：**每回合固定各开一炮**（无论是否命中，每次合法开火后均切换回合），保持逻辑最简化与节奏可控。不可重复轰炸同一坐标。  
 * **四阶段状态机**：  
   1. `WAITING`：等待两名玩家凭有效邀请码及昵称入座；满 2 人后自动切入 `PLACING`。  
-  2. `PLACING`（并行阶段）：双方同时摆船并提交 `place_ships`（提交后即锁定该玩家的准备状态）；双方均锁定后自动切入 `PLAYING`，由当前局的 `startingPlayer` 先手（首局默认 `p1`）。  
+  2. `PLACING`（并行阶段）：双方同时在布阵弹窗内随机并提交 `place_ships`（提交后即锁定该玩家的准备状态）；双方均锁定后自动切入 `PLAYING`，由当前局的 `startingPlayer` 先手（首局默认 `p1`）。  
   3. `PLAYING`（严格回合制）：当前回合玩家提交 `fire(x, y)`，服务端权威判定 `miss`（落空）/ `hit`（命中）/ `sunk`（击沉），随后切换回合。  
-  4. `FINISHED`：任一方 3 艘船全部被击沉即判负；对局结束时向双方公开完整棋盘复盘，支持重置回 `PLACING` 再来一局，或由 Admin 销毁房间。  
+  4. `FINISHED`：任一方 3 艘船全部被击沉即判负；对局结束时向双方公开完整棋盘，并弹出**居中胜负结算弹窗**，支持点击 `Review Board`（关闭弹窗复盘查看双方完整棋盘，顶栏仍保留 `Rematch`）或 `Rematch`（重置回 `PLACING` 再来一局），亦可由 Admin 重置或销毁房间。  
 * **再来一局（双人确认 \+ 轮换先手）**：  
   * 在 `FINISHED` 阶段，玩家点击“再来一局”发送 `rematch`，服务端记录其投票并广播状态（已点击方界面显示“等待对手确认再来一局...”），防止单方手快清屏影响复盘。  
   * 当 **`p1` 和 `p2` 均确认**后，自动切换下一局先手方（`p1` 与 `p2` 互换），清空双方船只、弹孔与投票记录，状态重置回 `PLACING`。
@@ -41,8 +43,8 @@
 
 ## **3.1 技术栈**
 
-* **前端**：**零构建的原生 HTML / CSS / JS**（不使用 Vite、React 等打包工具，直接放于 `public/` 目录）。  
-* **后端**：TypeScript（纯内核与 Cloudflare / Node.js 双端外壳共享同一套类型与状态机）。
+* **前端**：**零构建的原生 HTML / CSS / JS**（不使用 Vite、React 等打包工具，直接放于 `public/` 目录），并通过 `public/i18n.js` 提供中英文双语支持（**英文为默认语言**，`EN / 中文` 实时切换）。  
+* **后端**：TypeScript（纯内核与 Cloudflare / Node.js 双端外壳共享同一套类型与状态机；本地基于 Node.js 24+ 原生 TypeScript 类型剥离运行及 `node --test` 执行测试）。
 
 ## **3.2 目录结构（纯内核 \+ 双端薄适配层）**
 
@@ -60,17 +62,22 @@ battleship-demo/
 │       │   ├── admin-registry.ts     # 全局唯一 DO（"admin-registry"）：邀请码白名单与过期检查
 │       │   └── game-room.ts          # 房间 DO：WebSocket Hibernation + SQLite storage + 广播
 │       └── node/
-│           └── server.ts             # Node.js 外壳（原生 HTTP 静态托管 + /api/* + ws 库 + 内存 Map）
+│           ├── server.ts             # Node.js 外壳（原生 HTTP 静态托管 + /api/* + ws 库 + 内存 Map）
+│           └── server.test.ts        # Node HTTP / WebSocket 集成测试
 ├── public/                           # 零构建原生前端
-│   ├── index.html                    # 玩家端（自动识别 ?code=，含输码与昵称入口、双棋盘、在线状态灯、随机布阵）
-│   ├── admin.html                    # 管理端（单密码登录、建房发码、TTL 选择、复制链接、重置/销毁房间）
-│   ├── styles.css                    # 极简清晰样式
+│   ├── index.html                    # 玩家端（自动识别 ?code=，含双语切换、入房、双棋盘、布阵/结算/提示弹窗）
+│   ├── admin/
+│   │   └── index.html                # 管理端 /admin/（单密码登录、双语切换、建房发码、TTL 选择、复制链接、重置/销毁房间）
+│   ├── styles.css                    # 极简清晰样式（含双棋盘与居中弹窗）
+│   ├── i18n.js                       # 中英文双语词典与切换逻辑（英文默认，持久化至 localStorage）
 │   ├── game.js                       # 玩家端逻辑
 │   └── admin.js                      # 管理端逻辑
 ├── .dev.vars.example                 # 本地环境变量模板（包含 ADMIN_TOKEN 示例）
 ├── .gitignore                        # 必须忽略 .dev.vars、node_modules、.wrangler
-├── package.json                      # 脚本：dev:node / dev:cf / test
-└── wrangler.jsonc                    # Cloudflare Workers + Static Assets + SQLite DO 配置
+├── package.json                      # 脚本：dev:node / dev:cf / test / typecheck
+├── tsconfig.json                     # Node.js 与纯内核 TypeScript 类型检查配置
+├── tsconfig.cf.json                  # Cloudflare Workers 独立 TypeScript 类型检查配置
+└── wrangler.jsonc                    # Cloudflare Workers + Static Assets + SQLite DO（含 env.dev）配置
 ```
 
 ## **3.3 Admin 密钥与环境配置（不写死在源码中）**
@@ -79,7 +86,9 @@ battleship-demo/
 * **本地开发（双端共用同一配置文件）**：  
   * 在项目根目录提供 `.dev.vars.example`（内容示例：`ADMIN_TOKEN=dev-admin-password`），开发者复制为 `.dev.vars` 并加入 `.gitignore`。  
   * `wrangler dev` 会自动加载 `.dev.vars`；Node.js 端通过 `node --env-file=.dev.vars` 读取同一文件，实现零额外依赖双端统一。  
-* **Cloudflare 线上部署**：通过 `npx wrangler secret put ADMIN_TOKEN`（或在 Dashboard Worker Secrets 页面）加密注入。  
+* **Cloudflare 线上部署（生产与 `dev` 环境彻底隔离）**：  
+  * **生产环境**（`battleship-mini-demo`）：通过 `npx wrangler secret put ADMIN_TOKEN` 注入密钥，使用 `npx wrangler deploy` 部署。  
+  * **隔离开发/测试环境**（`env.dev` → `battleship-mini-demo-dev`）：为避免分支测试覆盖生产或共用房间数据，需分别运行 `npx wrangler secret put ADMIN_TOKEN --env dev` 与 `npx wrangler deploy --env dev`；该环境的 Worker 域名、Durable Objects 数据与 `ADMIN_TOKEN` 与生产完全隔离。  
 * **安全兜底（Fail-Closed）**：若运行环境未配置或 `ADMIN_TOKEN` 为空，服务端直接拒绝所有 `/api/admin/*` 请求，绝不使用硬编码默认密码。
 
 ## **3.4 三条硬性解耦约束（Antigravity 实现时必须遵守）**
@@ -106,11 +115,12 @@ battleship-demo/
 
 * 静态页面（由 Workers Static Assets 或 Node.js HTTP 直接托管 `public/`）：  
   * `/` → `public/index.html`（玩家端）  
-  * `/admin.html`（Node 与 CF 均可访问，可兼容 `/admin` 重定向至 `/admin.html`）→ `public/admin.html`（管理端）  
+  * `/admin/` → `public/admin/index.html`（管理端；Node 端对 `/admin` 与 `/admin.html` 做 `302` 重定向至 `/admin/`，Cloudflare Static Assets 原生提供 `/admin/` 并自动将 `/admin` 重定向至 `/admin/`）  
 * Cloudflare `wrangler.jsonc` 配置关键点：  
   * `compatibility_date`：设为当前日期（如 `"2026-11-21"`）  
-  * `assets`: `{ "directory": "./public", "run_worker_first": ["/api/*", "/ws"] }`（静态资源直接由边缘缓存下发，仅 API 与 WebSocket 经过 Worker）  
-  * Durable Objects 绑定：`ADMIN_REGISTRY` 与 `GAME_ROOM`，并在 migrations 中配置 `new_sqlite_classes` 启用 SQLite 后端
+  * `assets`: `{ "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*", "/ws"] }`（静态资源直接由边缘缓存下发，仅 API 与 WebSocket 经过 Worker）  
+  * Durable Objects 绑定：`ADMIN_REGISTRY` 与 `GAME_ROOM`，并在 `migrations` 中配置 `new_sqlite_classes` 启用 SQLite 后端  
+  * 多环境隔离配置：`env.dev` 指定 `"name": "battleship-mini-demo-dev"` 并显式声明 `durable_objects` 绑定（`ADMIN_REGISTRY` 与 `GAME_ROOM`）
 
 ## **4.3 Admin HTTP 接口（`/api/admin/*`）**
 
@@ -146,7 +156,7 @@ battleship-demo/
 3. **客户端 → 服务端（`ClientAction`）**：  
    * 摆船锁定：`{ "type": "place_ships", "ships": [{ "id": "s1", "x": 0, "y": 0, "len": 3, "dir": "H" }, ...] }`  
    * 开火：`{ "type": "fire", "x": 2, "y": 4 }`  
-   1. 再来一局投票：`{ "type": "rematch" }`  
+   * 再来一局投票：`{ "type": "rematch" }`  
 4. **服务端 → 客户端（`ServerEvent`）**：  
    1. 状态与在线态快照：`{ "type": "state", "view": PlayerView, "presence": { "selfOnline": true, "opponentOnline": boolean } }`（首次连入、状态变化、断线重连以及对手上线/离线时均下发最新快照，`presence` 由外壳根据当前活跃连接动态计算，不写入纯内核）  
    2. 明确错误提示：`{ "type": "error", "code": "ROOM_FULL" | "INVALID_CODE" | "EXPIRED_CODE" | "INVALID_ACTION" | "REPLACED_BY_NEW_SESSION" | "ROOM_RESET" | "ROOM_CLOSED", "message": "..." }`  
@@ -158,7 +168,7 @@ battleship-demo/
 
 ---
 
-# **五、昵称座位绑定、跨设备找回与 Cloudflare 休眠约束**
+# **五、昵称座位绑定、前端交互与 Cloudflare 休眠约束**
 
 ## **5.1 昵称绑定 \+ `sessionStorage`（替代随机 `clientId`）**
 
@@ -172,11 +182,23 @@ battleship-demo/
   * **本地双开自测**：同一浏览器打开两个普通标签页，Tab 1 填 `Alice`、Tab 2 填 `Bob`，因 `sessionStorage` 按标签页隔离，可直接双人联机测试，无需开隐身窗口。  
   * **陌生第 3 人拦截**：输入第 3 个不同昵称且房间已满时，短暂接受 WebSocket → 立即发送 `{ type: "error", code: "ROOM_FULL", message: "房间已满，请联系 Admin" }` → `close(4001)`，前端弹出明确提示。
 
-## **5.2 对手在线状态指示**
+## **5.2 前端交互与多语言（i18n）约定**
+
+* **中英文双语支持（英文默认）**：  
+  * 由 `public/i18n.js` 统一管理前端翻译词典，默认语言固定为**英文（`en`）**。  
+  * 玩家端（入房页与对局顶栏）及管理端（`/admin/` 登录页与控制台顶栏）均提供即时切换按钮（`🌐 中文 / 🌐 EN`），用户选择写入 `localStorage`（`battleship_lang`）持久化保存，刷新或跳转页面自动保持所选语言。  
+* **布阵弹窗（`PLACING` 阶段）**：  
+  * 双方入座进入 `PLACING` 后，当前未锁船的玩家会看到居中布阵弹窗，内置 **6×6 实时预览棋盘**、对手准备状态徽章以及操作按钮 `Randomize Fleet` 和 `Confirm & Lock Fleet`；确认锁定后弹窗自动关闭并在主界面显示等待对手布阵提示。  
+* **胜负结算弹窗（`FINISHED` 阶段）**：  
+  * 任一方 3 艘船全部击沉进入 `FINISHED` 后，自动弹出居中结算弹窗展示胜负结果与最后一炮摘要，提供两个按钮：`Review Board`（仅关闭本局结算弹窗便于查看公开后的敌方完整棋盘，顶栏同时保留 `Rematch` 按钮）与 `Rematch`（投票或接受再来一局；若在弹窗未关闭前已投票，也可点击按钮进入等待状态）。  
+* **退出 / 切换昵称**：  
+  * `Leave / Switch Name` 按钮仅置于游戏主界面顶栏，不放在布阵弹窗内；点击后清空当前会话的 `sessionStorage` 凭据、主动关闭 WebSocket 并返回入房表单页。
+
+## **5.3 对手在线状态指示**
 
 外壳监听连接建立与断开（Cloudflare `webSocketClose` / `webSocketError`，Node.js `ws.on("close")`），一旦玩家上线或离线，向房间内另一名在线玩家推送包含最新 `presence.opponentOnline` 的状态消息，界面顶部实时展示“对手在线 / 对手已离线（等待重连...）”。
 
-## **5.3 Cloudflare 休眠与状态恢复约束**
+## **5.4 Cloudflare 休眠与状态恢复约束**
 
 * 房间必须使用 WebSocket Hibernation API（`this.ctx.acceptWebSocket(server)`），并通过 `server.serializeAttachment({ playerId, normalizedName, displayName })` 存储单条连接的轻量身份标签（远低于 16 KiB 上限）。  
 * 房间状态与座位表采用 `getState()` 内存缓存 \+ 变更落盘 `this.ctx.storage.put(...)` \+ 缓存为 `null` 时从存储兜底加载。  
@@ -185,7 +207,7 @@ battleship-demo/
 # **六、验收清单（供 Antigravity 自测与人工验收）**
 
 1. **纯内核单测通过**：`src/core/engine.test.ts` 脱离网络独立通过测试（船只越界/重叠校验、每回合固定各开一炮与轮换、重复轰炸拦截、沉船胜负、双人确认再来一局及先手轮换、`getPlayerView` 严格不泄露对手未击沉船只坐标）。  
-2. **双端本地可运行**：配置 `.dev.vars` 后，`npm run dev:node`（Node.js 壳）与 `npm run dev:cf`（`wrangler dev`）均可正常访问 `/` 与 `/admin.html`，完整打完两局（含再来一局先手互换）。  
+2. **双端本地可运行**：配置 `.dev.vars` 后，`npm run dev:node`（Node.js 壳）与 `npm run dev:cf`（`wrangler dev`）均可正常访问 `/` 与 `/admin/`（及 `/admin` 重定向），完整打完两局（含再来一局先手互换）。  
 3. **Admin 鉴权、发码与 TTL**：未配置或输错 `ADMIN_TOKEN` 返回 401；支持选择 1/3/7/15/30 天有效期（默认 7 天）；过期码与无效码在 `/api/rooms/:code/check` 及 `/ws` 均被精准拦截且不拉起 `GameRoom`。  
 4. **昵称重连、跨设备找回与同浏览器双开**：  
    * 同浏览器两个普通标签页分别以不同昵称进入同一房间可顺畅对战；  
@@ -193,5 +215,6 @@ battleship-demo/
    * 打开新标签页输入已有玩家昵称可成功接管座位，原标签页收到“同名玩家已在其他设备接入”提示；  
    * 输入第 3 个昵称进入已满房间时，前端准确弹窗提示“房间已满，请联系 Admin”。  
 5. **在线状态与防作弊验证**：一方关掉标签页后另一方界面实时显示“对手已离线”，重连后恢复“对手在线”；对局未结束时在浏览器 Network → WS 面板检查收到的 JSON，确认不含对手未击沉船只坐标。  
-6. **重置与销毁验证**：Admin 点击“重置房间”后，原连接被断开、房间清空但原邀请码仍可重新进房开新局；点击“销毁房间”后，原邀请码立即失效并无法重连。
+6. **重置与销毁验证**：Admin 点击“重置房间”后，原连接被断开、房间清空但原邀请码仍可重新进房开新局；点击“销毁房间”后，原邀请码立即失效并无法重连。  
+7. **多语言、弹窗交互与双环境构建校验**：首次访问默认为英文且支持一键切换中文并持久化；`PLACING` 弹出含 6×6 预览的布阵弹窗、`FINISHED` 弹出胜负弹窗并支持 `Review Board` 与 `Rematch`；顶栏 `Leave / Switch Name` 可清空会话退回入房页；`npm test`、`npm run typecheck` 及 `npx wrangler deploy --dry-run --env dev` 均通过。
 
