@@ -1,5 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
-import { applyAction, createInitialState, seatPlayer } from "../../core/engine.ts";
+import {
+  applyAction,
+  createInitialState,
+  releaseSeat,
+  seatPlayer,
+} from "../../core/engine.ts";
 import type {
   ChatMessage,
   ClientAction,
@@ -342,6 +347,40 @@ export class GameRoom extends DurableObject {
 
     const now = Date.now();
     const { state, seats, chat } = await this.loadRoom(now);
+
+    if (parsed && typeof parsed === "object" && parsed.type === "leave") {
+      // Voluntary leave: free the seat so a different nickname can join.
+      const leaverName = seats[att.playerId]?.displayName ?? att.displayName;
+      ws.serializeAttachment(null);
+
+      const nextSeats: SeatsMap = {
+        p1: seats.p1 ? { ...seats.p1 } : null,
+        p2: seats.p2 ? { ...seats.p2 } : null,
+      };
+      nextSeats[att.playerId] = null;
+      const nextState = releaseSeat(state, att.playerId, now);
+
+      const notice: ChatMessage = {
+        id: crypto.randomUUID(),
+        senderId: att.playerId,
+        senderName: leaverName,
+        text: `${leaverName} left the room`,
+        createdAt: now,
+        system: "player_left",
+      };
+      const nextChat = [...chat, notice].slice(-MAX_CHAT_HISTORY);
+
+      await this.saveRoom(nextState, nextSeats);
+      await this.saveChat(nextChat);
+      this.broadcastState(nextState, ws);
+      this.broadcastEvent({ type: "chat", message: notice });
+      try {
+        ws.close(1000, "LEFT");
+      } catch {
+        // Socket may already be closed.
+      }
+      return;
+    }
 
     if (parsed && typeof parsed === "object" && parsed.type === "chat") {
       const text = typeof parsed.text === "string" ? parsed.text.trim() : "";

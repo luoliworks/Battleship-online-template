@@ -73,6 +73,10 @@
   const noticeModalMessage = document.getElementById("notice-modal-message");
   const noticeModalClose = document.getElementById("notice-modal-close");
 
+  const leaveConfirmModal = document.getElementById("leave-confirm-modal");
+  const leaveConfirmOk = document.getElementById("leave-confirm-ok");
+  const leaveConfirmCancel = document.getElementById("leave-confirm-cancel");
+
   let activeSocket = null;
   let currentCode = "";
   let currentNickname = "";
@@ -203,14 +207,24 @@
     ];
   }
 
-  function buildCellSet(ships) {
-    const set = new Set();
+  function buildShipSegmentMap(ships) {
+    const map = new Map();
     for (const ship of ships) {
-      for (const cell of getShipCells(ship)) {
-        set.add(`${cell.x},${cell.y}`);
+      const cells = getShipCells(ship);
+      for (let i = 0; i < cells.length; i += 1) {
+        const cell = cells[i];
+        let part = "mid";
+        if (cells.length === 1) {
+          part = "single";
+        } else if (i === 0) {
+          part = "head";
+        } else if (i === cells.length - 1) {
+          part = "tail";
+        }
+        map.set(`${cell.x},${cell.y}`, { dir: ship.dir, part });
       }
     }
-    return set;
+    return map;
   }
 
   function buildShotMap(shots) {
@@ -236,8 +250,8 @@
 
   function renderBoardGrid(container, options) {
     const {
-      shipCells,
-      previewCells,
+      shipMap,
+      previewMap,
       sunkCells,
       shotMap,
       lastShotCoord,
@@ -273,29 +287,48 @@
         cellBtn.setAttribute("aria-label", i18n.t("game.cellAria", { x, y }));
 
         const shot = shotMap.get(key);
-        const hasShip = shipCells.has(key);
-        const hasPreview = previewCells.has(key);
+        const shipSeg = shipMap.get(key);
+        const previewSeg = previewMap.get(key);
         const isSunkCell = sunkCells.has(key);
 
-        if (hasPreview) {
+        if (previewSeg) {
           cellBtn.classList.add("preview");
-        } else if (hasShip) {
+        } else if (shipSeg) {
           cellBtn.classList.add("ship");
         }
 
+        const activeSeg = previewSeg || shipSeg;
+        if (activeSeg) {
+          const hull = document.createElement("span");
+          hull.className = `ship-hull ${activeSeg.dir === "H" ? "dir-h" : "dir-v"} part-${activeSeg.part}`;
+          if (previewSeg) {
+            hull.classList.add("preview");
+          } else if (shot && isSunkCell) {
+            hull.classList.add("sunk");
+          }
+          cellBtn.appendChild(hull);
+        }
+
         if (shot) {
+          let markChar = "";
           if (isSunkCell) {
             cellBtn.classList.add("sunk");
-            cellBtn.textContent = "☠";
+            markChar = "☠";
           } else {
             cellBtn.classList.add(shot.result);
             if (shot.result === "miss") {
-              cellBtn.textContent = "○";
+              markChar = "○";
             } else if (shot.result === "hit") {
-              cellBtn.textContent = "✕";
+              markChar = "✕";
             } else if (shot.result === "sunk") {
-              cellBtn.textContent = "☠";
+              markChar = "☠";
             }
+          }
+          if (markChar) {
+            const markEl = document.createElement("span");
+            markEl.className = "cell-mark";
+            markEl.textContent = markChar;
+            cellBtn.appendChild(markEl);
           }
           cellBtn.disabled = true;
         } else if (canFire) {
@@ -364,9 +397,27 @@
     }
 
     const selfId = currentView && currentView.self ? currentView.self.id : null;
+    const selfName = (
+      (currentView && currentView.self && currentView.self.displayName) ||
+      currentNickname ||
+      ""
+    ).toLowerCase();
     for (const msg of chatMessages) {
       const item = document.createElement("div");
-      item.className = `chat-msg ${selfId && msg.senderId === selfId ? "self" : "opponent"}`;
+
+      if (msg.system === "player_left") {
+        item.className = "chat-msg system";
+        item.textContent = `${i18n.t("chat.playerLeft", { name: msg.senderName })} · ${formatChatTime(msg.createdAt)}`;
+        chatMessagesEl.appendChild(item);
+        continue;
+      }
+
+      // A seat can change hands after a leave, so match on name as well as seat id.
+      const isSelf =
+        selfId !== null &&
+        msg.senderId === selfId &&
+        String(msg.senderName || "").toLowerCase() === selfName;
+      item.className = `chat-msg ${isSelf ? "self" : "opponent"}`;
 
       const meta = document.createElement("div");
       meta.className = "chat-msg-meta";
@@ -498,8 +549,8 @@
           : i18n.t("game.oppPlacingBadge");
 
         renderBoardGrid(placementBoardGrid, {
-          shipCells: new Set(),
-          previewCells: buildCellSet(draftShips || []),
+          shipMap: new Map(),
+          previewMap: buildShipSegmentMap(draftShips || []),
           sunkCells: new Set(),
           shotMap: new Map(),
           lastShotCoord: null,
@@ -595,8 +646,8 @@
 
     const myShotMap = buildShotMap(view.myBoard.incomingShots);
     renderBoardGrid(myBoardGrid, {
-      shipCells: buildCellSet(myShipsToShow),
-      previewCells: buildCellSet(myPreviewShips),
+      shipMap: buildShipSegmentMap(myShipsToShow),
+      previewMap: buildShipSegmentMap(myPreviewShips),
       sunkCells: buildSunkCellSet(myShipsToShow, myShotMap),
       shotMap: myShotMap,
       lastShotCoord: lastShotForMyBoard,
@@ -608,8 +659,8 @@
       view.phase === "PLAYING" && view.currentTurn === view.self.id;
     const enemyShotMap = buildShotMap(view.enemyBoard.myShots);
     renderBoardGrid(enemyBoardGrid, {
-      shipCells: buildCellSet(view.enemyBoard.revealedShips),
-      previewCells: new Set(),
+      shipMap: buildShipSegmentMap(view.enemyBoard.revealedShips),
+      previewMap: new Map(),
       sunkCells: buildSunkCellSet(view.enemyBoard.revealedShips, enemyShotMap),
       shotMap: enemyShotMap,
       lastShotCoord: lastShotForEnemyBoard,
@@ -667,6 +718,7 @@
     resetBanner.classList.add("hidden");
     placementModal.classList.add("hidden");
     resultModal.classList.add("hidden");
+    leaveConfirmModal.classList.add("hidden");
     hideGameToast();
     renderChat(false);
 
@@ -760,6 +812,12 @@
             chatMessages = chatMessages.slice(-50);
           }
           renderChat(true);
+          if (payload.message.system === "player_left") {
+            showGameToast(
+              "info",
+              i18n.t("game.opponentLeft", { name: payload.message.senderName }),
+            );
+          }
         }
         return;
       }
@@ -935,14 +993,43 @@
     }
   });
 
-  leaveRoomBtn.addEventListener("click", () => {
+  function performLeave() {
+    leaveConfirmModal.classList.add("hidden");
     manualDisconnect = true;
+    // Tell the server to free the seat; otherwise it is held for reconnect and a
+    // different nickname would get ROOM_FULL. The close frame is queued after it.
+    if (activeSocket && activeSocket.readyState === WebSocket.OPEN) {
+      try {
+        activeSocket.send(JSON.stringify({ type: "leave" }));
+      } catch {
+        // Socket closing; fall through to local leave.
+      }
+    }
     returnToJoinScreen({
       alertType: "info",
       alertMessage: i18n.t("join.leftRoom"),
       clearNickname: true,
       clearSavedSession: true,
     });
+  }
+
+  leaveRoomBtn.addEventListener("click", () => {
+    const phase = currentView ? currentView.phase : null;
+    if (phase === "PLACING" || phase === "PLAYING") {
+      leaveConfirmModal.classList.remove("hidden");
+      leaveConfirmCancel.focus();
+      return;
+    }
+    performLeave();
+  });
+  leaveConfirmOk.addEventListener("click", performLeave);
+  leaveConfirmCancel.addEventListener("click", () => {
+    leaveConfirmModal.classList.add("hidden");
+  });
+  leaveConfirmModal.addEventListener("click", (event) => {
+    if (event.target === leaveConfirmModal) {
+      leaveConfirmModal.classList.add("hidden");
+    }
   });
 
   manualReconnectBtn.addEventListener("click", () => {

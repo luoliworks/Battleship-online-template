@@ -161,6 +161,17 @@
     </div>
   </div>
 
+  <div id="leave-confirm-modal" class="modal-backdrop notice-modal hidden" role="dialog" aria-modal="true" aria-labelledby="leave-confirm-title">
+    <div class="modal-card">
+      <h2 id="leave-confirm-title" data-i18n="leave.confirmTitle">Leave the room?</h2>
+      <p id="leave-confirm-message" style="margin: 0 0 16px;" data-i18n="leave.confirmMessage">Leaving will end the current match. Your opponent will wait for a new player.</p>
+      <div class="row-actions" style="justify-content: flex-end;">
+        <button id="leave-confirm-cancel" type="button" class="btn-secondary" data-i18n="leave.cancelBtn">Stay</button>
+        <button id="leave-confirm-ok" type="button" class="btn-danger" data-i18n="leave.confirmBtn">Leave</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/i18n.js" defer></script>
   <script src="/game.js" defer></script>
 </body>

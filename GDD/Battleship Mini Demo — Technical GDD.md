@@ -164,6 +164,7 @@ battleship-demo/
    * 发起/同意重置对局（核心动作）：`{ "type": "reset_game" }`  
    * 取消/拒绝重置（核心动作）：`{ "type": "cancel_reset" }`  
    * 发送房间聊天（仅适配层处理，不进 `src/core/`，限制 1–200 字符）：`{ "type": "chat", "text": "..." }`  
+   * 主动离开并释放座位（适配层处理，调用纯函数 `releaseSeat`）：`{ "type": "leave" }` → 服务端清空该座位、对局回到 `WAITING` / Round 1、写入一条系统聊天消息（`system: "player_left"`），随后以 `close(1000, "LEFT")` 关闭该连接  
 4. **服务端 → 客户端（`ServerEvent`）**：  
    1. 状态与在线态快照：`{ "type": "state", "view": PlayerView, "presence": { "selfOnline": true, "opponentOnline": boolean } }`（首次连入、状态变化、断线重连以及对手上线/离线时均下发最新快照，`presence` 由外壳根据当前活跃连接动态计算，不写入纯内核）  
    2. 房间聊天历史（新连接建立时下发，最多最近 50 条）：`{ "type": "chat_history", "messages": ChatMessage[] }`  
@@ -189,7 +190,8 @@ battleship-demo/
   * **本机刷新（F5）**：页面重新加载时从 `sessionStorage` 自动读取当前房间的昵称重连，无感恢复棋局。  
   * **换设备 / 关掉标签页重开**：只要在新设备上输入同一个昵称，服务端识别为已入座玩家，向旧连接发送 `REPLACED_BY_NEW_SESSION` 并关闭（`4002`），将新连接绑定到该座位并立即下发最新 `PlayerView`。  
   * **本地双开自测**：同一浏览器打开两个普通标签页，Tab 1 填 `Alice`、Tab 2 填 `Bob`，因 `sessionStorage` 按标签页隔离，可直接双人联机测试，无需开隐身窗口。  
-  * **陌生第 3 人拦截**：输入第 3 个不同昵称且房间已满时，短暂接受 WebSocket → 立即发送 `{ type: "error", code: "ROOM_FULL", message: "房间已满，请联系 Admin" }` → `close(4001)`，前端弹出明确提示。
+  * **陌生第 3 人拦截**：输入第 3 个不同昵称且房间已满时，短暂接受 WebSocket → 立即发送 `{ type: "error", code: "ROOM_FULL", message: "房间已满，请联系 Admin" }` → `close(4001)`，前端弹出明确提示。  
+  * **掉线 vs 主动离开**：意外断线（关标签页、断网）时服务端**保留座位**等待同名重连；只有点击 `Leave / Switch Name`（发送 `leave`）才会**释放座位**，此后任意新昵称都可入座，不会再触发 `ROOM_FULL`。
 
 ## **5.2 前端交互与多语言（i18n）约定**
 
@@ -201,7 +203,8 @@ battleship-demo/
 * **胜负结算弹窗（`FINISHED` 阶段）**：  
   * 任一方 3 艘船全部击沉进入 `FINISHED` 后，自动弹出居中结算弹窗展示胜负结果与最后一炮摘要，提供两个按钮：`Review Board`（仅关闭本局结算弹窗便于查看公开后的敌方完整棋盘，顶栏同时保留 `Rematch` 按钮）与 `Rematch`（投票或接受再来一局；若在弹窗未关闭前已投票，也可点击按钮进入等待状态）。  
 * **退出 / 切换昵称**：  
-  * `Leave / Switch Name` 按钮仅置于游戏主界面顶栏，不放在布阵弹窗内；点击后清空当前会话的 `sessionStorage` 凭据、主动关闭 WebSocket 并返回入房表单页。  
+  * `Leave / Switch Name` 按钮仅置于游戏主界面顶栏，不放在布阵弹窗内；在 `PLACING` / `PLAYING` 阶段点击会先弹出确认框（`Stay` / `Leave`），其余阶段直接离开。离开时先向服务端发送 `{ type: "leave" }` 释放座位，再清空当前会话的 `sessionStorage` 凭据、关闭 WebSocket 并返回入房表单页，因此可直接换新昵称重新入房。  
+  * 留在房间的一方保留座位与昵称，对局回到 `WAITING` / Round 1，聊天区显示居中系统消息“Jack 离开了房间”，并弹出“对手已离开，等待新玩家加入”提示；聊天记录保留（同一座位换人后，旧消息按 `senderId + senderName` 区分，不会被误显示为新玩家本人的消息）。  
 * **房间内聊天面板与随时重置**：  
   * **常驻紧凑聊天区**：固定位于双棋盘与图例下方，仅使用 `textContent` 安全渲染消息（含发送者、时间与文本，自己与对手分左右高亮显示）。房间聊天完全由适配层负责（Node 内存 / Cloudflare DO SQLite），每个房间保留最近 **50** 条消息（单条上限 **200** 字符），F5 刷新或断线重连可完整回看；仅在 Admin **重置房间** 或 **销毁房间** 时随房间存储一并清空。  
   * **随时重置对局（`Reset Game`）**：在 `PLACING` / `PLAYING` 阶段显示在状态操作栏；任一方发起重置后弹出确认横幅（`Accept Reset` / `Decline` / `Cancel`），双方同意后重置回 Round 1 `PLACING` 且保留座位与聊天记录。
@@ -229,5 +232,6 @@ battleship-demo/
 5. **在线状态与防作弊验证**：一方关掉标签页后另一方界面实时显示“对手已离线”，重连后恢复“对手在线”；对局未结束时在浏览器 Network → WS 面板检查收到的 JSON，确认不含对手未击沉船只坐标。  
 6. **重置与销毁验证**：Admin 点击“重置房间”后，原连接被断开、房间清空但原邀请码仍可重新进房开新局；点击“销毁房间”后，原邀请码立即失效并无法重连。  
 7. **多语言、弹窗交互与双环境构建校验**：首次访问默认为英文且支持一键切换中文并持久化；`PLACING` 弹出含 6×6 预览的布阵弹窗、`FINISHED` 弹出胜负弹窗并支持 `Review Board` 与 `Rematch`；顶栏 `Leave / Switch Name` 可清空会话退回入房页；`npm test`、`npm run typecheck` 及 `npx wrangler deploy --dry-run --env dev` 均通过。  
-8. **房间聊天与双人确认 `Reset Game` 校验**：对局双方可在棋盘下方聊天区实时互通消息（最多 200 字、保留最近 50 条、刷新重连自动恢复）；Admin 重置/销毁房间后聊天记录被清空；对局中任一方发起 `Reset Game`、对方同意后棋局恢复 Round 1 `PLACING`（`p1` 先手）且双方座位与聊天记录保持完整。
+8. **房间聊天与双人确认 `Reset Game` 校验**：对局双方可在棋盘下方聊天区实时互通消息（最多 200 字、保留最近 50 条、刷新重连自动恢复）；Admin 重置/销毁房间后聊天记录被清空；对局中任一方发起 `Reset Game`、对方同意后棋局恢复 Round 1 `PLACING`（`p1` 先手）且双方座位与聊天记录保持完整。  
+9. **主动离开释放座位校验**：对局中 Jack 点击 `Leave / Switch Name` 并确认后，对手 Bob 界面回到 `WAITING` 并看到“Jack 离开了房间”；此时以新昵称 Joe 使用同一邀请码入房可成功入座（不再提示 `ROOM_FULL`），双方进入 Round 1 `PLACING`；再有第 3 个昵称进入仍被 `ROOM_FULL` 拦截。
 

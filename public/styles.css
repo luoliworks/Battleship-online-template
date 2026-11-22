@@ -340,17 +340,143 @@ button:disabled {
   font-size: 1rem;
   padding: 0;
   position: relative;
+  overflow: visible;
 }
 
 .cell.ship {
-  background: rgba(59, 130, 246, 0.45);
-  border-color: #60a5fa;
+  background: rgba(30, 58, 138, 0.22);
+  border-color: rgba(96, 165, 250, 0.35);
 }
 
 .cell.preview {
-  background: rgba(2, 132, 199, 0.45);
-  border-color: #38bdf8;
+  background: rgba(2, 132, 199, 0.18);
+  border-color: rgba(56, 189, 248, 0.45);
   border-style: dashed;
+}
+
+.ship-hull {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(96, 165, 250, 0.72) 0%, rgba(37, 99, 235, 0.65) 100%);
+  border: 1.5px solid #93c5fd;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.ship-hull.preview {
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.65) 0%, rgba(2, 132, 199, 0.6) 100%);
+  border-color: #7dd3fc;
+}
+
+.ship-hull.sunk {
+  background: linear-gradient(180deg, rgba(220, 38, 38, 0.78) 0%, rgba(153, 27, 27, 0.8) 100%);
+  border-color: #fca5a5;
+}
+
+.cell.hit > .ship-hull {
+  border-color: #fdba74;
+}
+
+.ship-hull.dir-h {
+  top: 7px;
+  bottom: 7px;
+}
+
+.ship-hull.dir-h.part-head {
+  left: 4px;
+  right: -5px;
+  border-right: none;
+  border-radius: 22px 0 0 22px;
+}
+
+.ship-hull.dir-h.part-mid {
+  left: -5px;
+  right: -5px;
+  border-left: none;
+  border-right: none;
+  border-radius: 0;
+}
+
+.ship-hull.dir-h.part-tail {
+  left: -5px;
+  right: 4px;
+  border-left: none;
+  border-radius: 0 7px 7px 0;
+}
+
+.ship-hull.dir-h.part-single {
+  left: 5px;
+  right: 5px;
+  border-radius: 22px 7px 7px 22px;
+}
+
+.ship-hull.dir-v {
+  left: 7px;
+  right: 7px;
+  background: linear-gradient(90deg, rgba(96, 165, 250, 0.72) 0%, rgba(37, 99, 235, 0.65) 100%);
+}
+
+.ship-hull.dir-v.preview {
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.65) 0%, rgba(2, 132, 199, 0.6) 100%);
+}
+
+.ship-hull.dir-v.sunk {
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.78) 0%, rgba(153, 27, 27, 0.8) 100%);
+}
+
+.ship-hull.dir-v.part-head {
+  top: 4px;
+  bottom: -5px;
+  border-bottom: none;
+  border-radius: 22px 22px 0 0;
+}
+
+.ship-hull.dir-v.part-mid {
+  top: -5px;
+  bottom: -5px;
+  border-top: none;
+  border-bottom: none;
+  border-radius: 0;
+}
+
+.ship-hull.dir-v.part-tail {
+  top: -5px;
+  bottom: 4px;
+  border-top: none;
+  border-radius: 0 0 7px 7px;
+}
+
+.ship-hull.dir-v.part-single {
+  top: 5px;
+  bottom: 5px;
+  border-radius: 22px 22px 7px 7px;
+}
+
+.ship-hull.part-mid::after,
+.ship-hull.part-tail::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(230, 238, 251, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.cell.hit > .ship-hull::after,
+.cell.sunk > .ship-hull::after {
+  display: none;
+}
+
+.cell-mark {
+  position: relative;
+  z-index: 2;
+  pointer-events: none;
+  line-height: 1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 
 .cell.miss {
@@ -373,6 +499,7 @@ button:disabled {
 
 .cell.last-shot {
   box-shadow: 0 0 0 2px #fde047;
+  z-index: 3;
 }
 
 .cell.clickable {
@@ -588,6 +715,18 @@ th {
   background: var(--surface-alt);
 }
 
+.chat-msg.system {
+  align-self: center;
+  max-width: 100%;
+  padding: 3px 12px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
 .chat-msg-meta {
   display: flex;
   align-items: baseline;
@@ -636,5 +775,15 @@ th {
 
   :root {
     --cell-size: 40px;
+  }
+
+  .ship-hull.dir-h {
+    top: 5px;
+    bottom: 5px;
+  }
+
+  .ship-hull.dir-v {
+    left: 5px;
+    right: 5px;
   }
 }

@@ -10,7 +10,12 @@ import type { Duplex } from "node:stream";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
-import { applyAction, createInitialState, seatPlayer } from "../../core/engine.ts";
+import {
+  applyAction,
+  createInitialState,
+  releaseSeat,
+  seatPlayer,
+} from "../../core/engine.ts";
 import type {
   ChatMessage,
   ClientAction,
@@ -390,6 +395,41 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
           code: "INVALID_ACTION",
           message: "消息格式错误，必须为 JSON",
         });
+        return;
+      }
+
+      if (message && typeof message === "object" && message.type === "leave") {
+        // Voluntary leave: free the seat so a different nickname can join.
+        const leaverName =
+          activeRoom.seats[assignedPlayerId]?.displayName ?? displayName;
+        const leftAt = now();
+        activeRoom.seats[assignedPlayerId] = null;
+        activeRoom.connections[assignedPlayerId] = null;
+        activeRoom.state = releaseSeat(activeRoom.state, assignedPlayerId, leftAt);
+
+        const notice: ChatMessage = {
+          id: randomUUID(),
+          senderId: assignedPlayerId,
+          senderName: leaverName,
+          text: `${leaverName} left the room`,
+          createdAt: leftAt,
+          system: "player_left",
+        };
+        activeRoom.chatMessages.push(notice);
+        if (activeRoom.chatMessages.length > MAX_CHAT_HISTORY) {
+          activeRoom.chatMessages = activeRoom.chatMessages.slice(
+            -MAX_CHAT_HISTORY,
+          );
+        }
+
+        broadcastRoomState(activeRoom);
+        broadcastRoomEvent(activeRoom, { type: "chat", message: notice });
+        if (
+          ws.readyState === WebSocket.OPEN ||
+          ws.readyState === WebSocket.CONNECTING
+        ) {
+          ws.close(1000, "LEFT");
+        }
         return;
       }
 

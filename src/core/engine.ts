@@ -150,6 +150,34 @@ export function seatPlayer(
   return next;
 }
 
+/**
+ * Voluntarily release a seat (player clicked "Leave").
+ * The match is abandoned: the room returns to WAITING / Round 1, the remaining
+ * player keeps their seat and name, and the freed seat can be taken by anyone.
+ */
+export function releaseSeat(
+  state: GameState,
+  playerId: PlayerId,
+  now: number,
+): GameState {
+  const next = cloneState(state);
+  const opponentId = getOpponentId(playerId);
+  next.phase = "WAITING";
+  next.round = 1;
+  next.startingPlayer = "p1";
+  next.currentTurn = null;
+  next.winner = null;
+  next.lastShot = null;
+  next.rematchVotes = { p1: false, p2: false };
+  next.resetVotes = { p1: false, p2: false };
+  next.players[playerId] = createEmptyPlayerState(null);
+  next.players[opponentId] = createEmptyPlayerState(
+    next.players[opponentId].displayName,
+  );
+  next.updatedAt = now;
+  return next;
+}
+
 export function getShipCells(ship: ShipPlacement): GridCell[] {
   const cells: GridCell[] = [];
   for (let i = 0; i < ship.len; i += 1) {

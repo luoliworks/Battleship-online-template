@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   applyAction,
   createInitialState,
+  releaseSeat,
   seatPlayer,
   validateShips,
 } from "./engine.ts";
@@ -619,5 +620,40 @@ describe("Pure Battleship Core Engine", () => {
       applyAction(finishedState, "p1", { type: "cancel_reset" }, 4001).ok,
       false,
     );
+  });
+
+  it("releaseSeat frees the leaver's seat, abandons the match, and lets a new player re-seat", () => {
+    let state = setupPlayingState();
+    const fired = applyAction(state, "p1", { type: "fire", x: 3, y: 1 }, 5000);
+    assert.equal(fired.ok, true);
+    state = fired.state;
+    state.round = 3;
+    state.startingPlayer = "p2";
+    state.resetVotes.p2 = true;
+
+    const released = releaseSeat(state, "p1", 6000);
+    assert.equal(released.phase, "WAITING");
+    assert.equal(released.round, 1);
+    assert.equal(released.startingPlayer, "p1");
+    assert.equal(released.currentTurn, null);
+    assert.equal(released.winner, null);
+    assert.equal(released.lastShot, null);
+    assert.deepEqual(released.resetVotes, { p1: false, p2: false });
+    assert.deepEqual(released.rematchVotes, { p1: false, p2: false });
+    assert.equal(released.players.p1.displayName, null);
+    assert.deepEqual(released.players.p1.ships, []);
+    assert.equal(released.players.p2.displayName, "Bob");
+    assert.deepEqual(released.players.p2.ships, []);
+    assert.equal(released.players.p2.ready, false);
+    assert.deepEqual(released.players.p2.shotsFired, []);
+    assert.equal(released.updatedAt, 6000);
+    // Input state untouched (pure function)
+    assert.equal(state.phase, "PLAYING");
+    assert.equal(state.players.p1.displayName, "Alice");
+
+    const reseated = seatPlayer(released, "p1", "Joe", 7000);
+    assert.equal(reseated.phase, "PLACING");
+    assert.equal(reseated.players.p1.displayName, "Joe");
+    assert.deepEqual(JSON.parse(JSON.stringify(reseated)), reseated);
   });
 });

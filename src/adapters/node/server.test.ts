@@ -814,4 +814,93 @@ describe("Node.js Adapter Server", () => {
       await handle.close();
     }
   });
+
+  it("voluntary leave frees the seat so a different nickname can join (no ROOM_FULL)", async () => {
+    const { handle, baseUrl, wsBaseUrl } = await startTestServer({
+      adminToken: "admin-123",
+    });
+
+    try {
+      const createRes = await fetch(`${baseUrl}/api/admin/rooms`, {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer admin-123",
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      });
+      const { code } = (await createRes.json()) as { code: string };
+
+      const jack = await connectWsClient(`${wsBaseUrl}/ws?code=${code}&name=Jack`);
+      await jack.nextEvent((ev) => ev.type === "state");
+      const bob = await connectWsClient(`${wsBaseUrl}/ws?code=${code}&name=Bob`);
+      await bob.nextEvent((ev) => ev.type === "state");
+      await jack.nextEvent((ev) => ev.type === "state");
+
+      // Get into PLAYING so leave must abandon an in-progress match.
+      jack.ws.send(JSON.stringify({ type: "place_ships", ships: P1_SHIPS }));
+      await jack.nextEvent((ev) => ev.type === "state");
+      await bob.nextEvent((ev) => ev.type === "state");
+      bob.ws.send(JSON.stringify({ type: "place_ships", ships: P2_SHIPS }));
+      const bobPlaying = await bob.nextEvent((ev) => ev.type === "state");
+      assert.equal(bobPlaying.type, "state");
+      assert.equal(bobPlaying.view.phase, "PLAYING");
+      await jack.nextEvent((ev) => ev.type === "state");
+      jack.ws.send(JSON.stringify({ type: "fire", x: 3, y: 1 }));
+      await jack.nextEvent((ev) => ev.type === "state");
+      await bob.nextEvent((ev) => ev.type === "state");
+
+      // Jack leaves voluntarily: server closes his socket with 1000 "LEFT".
+      jack.ws.send(JSON.stringify({ type: "leave" }));
+      const jackClosed = await jack.waitForClose();
+      assert.equal(jackClosed.code, 1000);
+      assert.equal(jackClosed.reason, "LEFT");
+
+      const bobWaiting = await bob.nextEvent((ev) => ev.type === "state");
+      assert.equal(bobWaiting.type, "state");
+      assert.equal(bobWaiting.view.phase, "WAITING");
+      assert.equal(bobWaiting.view.round, 1);
+      assert.equal(bobWaiting.view.self.displayName, "Bob");
+      assert.equal(bobWaiting.view.opponent.displayName, null);
+      assert.deepEqual(bobWaiting.view.myBoard.ships, []);
+      assert.deepEqual(bobWaiting.view.myBoard.incomingShots, []);
+
+      const leftNotice = await bob.nextEvent((ev) => ev.type === "chat");
+      assert.equal(leftNotice.type, "chat");
+      assert.equal(leftNotice.message.system, "player_left");
+      assert.equal(leftNotice.message.senderName, "Jack");
+
+      // Joe (different nickname) can now take the freed seat.
+      const joe = await connectWsClient(`${wsBaseUrl}/ws?code=${code}&name=Joe`);
+      const joeState = await joe.nextEvent(
+        (ev) => ev.type === "state" || ev.type === "error",
+      );
+      assert.equal(joeState.type, "state");
+      assert.equal(joeState.view.self.id, "p1");
+      assert.equal(joeState.view.self.displayName, "Joe");
+      assert.equal(joeState.view.opponent.displayName, "Bob");
+      assert.equal(joeState.view.phase, "PLACING");
+      assert.equal(joeState.view.round, 1);
+      const joeHistory = await joe.nextEvent((ev) => ev.type === "chat_history");
+      assert.equal(joeHistory.type, "chat_history");
+      assert.equal(joeHistory.messages.at(-1)?.system, "player_left");
+
+      const bobPlacing = await bob.nextEvent((ev) => ev.type === "state");
+      assert.equal(bobPlacing.type, "state");
+      assert.equal(bobPlacing.view.phase, "PLACING");
+      assert.equal(bobPlacing.view.opponent.displayName, "Joe");
+
+      // Room is now full again: a third nickname is rejected.
+      const third = await connectWsClient(`${wsBaseUrl}/ws?code=${code}&name=Zed`);
+      const thirdErr = await third.nextEvent((ev) => ev.type === "error");
+      assert.equal(thirdErr.type, "error");
+      assert.equal(thirdErr.code, "ROOM_FULL");
+      await third.waitForClose();
+
+      await joe.close();
+      await bob.close();
+    } finally {
+      await handle.close();
+    }
+  });
 });

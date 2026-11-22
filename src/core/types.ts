@@ -79,7 +79,8 @@ export type ClientAction =
 
 export type ClientMessage =
   | ClientAction
-  | { type: "chat"; text: string };
+  | { type: "chat"; text: string }
+  | { type: "leave" };
 
 export type ErrorCode =
   | "ROOM_FULL"
@@ -138,6 +139,8 @@ export interface ChatMessage {
   senderName: string;
   text: string;
   createdAt: number;
+  /** Present on adapter-generated system notices (rendered localized by the client). */
+  system?: "player_left";
 }
 
 export type ServerEvent =

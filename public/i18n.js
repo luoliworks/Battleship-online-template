@@ -110,6 +110,13 @@
       "chat.placeholder": "Type a message (max 200 chars)...",
       "chat.sendBtn": "Send",
       "chat.emptyError": "Message cannot be empty.",
+      "chat.playerLeft": "{name} left the room",
+
+      "leave.confirmTitle": "Leave the room?",
+      "leave.confirmMessage": "Leaving will end the current match. Your opponent will wait for a new player.",
+      "leave.confirmBtn": "Leave",
+      "leave.cancelBtn": "Stay",
+      "game.opponentLeft": "{name} left the room. Waiting for a new player to join...",
 
       "admin.loginTitle": "Admin Console",
       "admin.loginSubtitle": "Enter the administrator token (ADMIN_TOKEN) to manage rooms and invite codes.",
@@ -288,6 +295,13 @@
       "chat.placeholder": "输入聊天内容（最多 200 字）...",
       "chat.sendBtn": "发送",
       "chat.emptyError": "聊天消息不能为空。",
+      "chat.playerLeft": "{name} 离开了房间",
+
+      "leave.confirmTitle": "确定离开房间？",
+      "leave.confirmMessage": "离开会结束当前对局，对手将等待新玩家加入。",
+      "leave.confirmBtn": "离开",
+      "leave.cancelBtn": "留下",
+      "game.opponentLeft": "{name} 已离开房间，等待新玩家加入...",
 
       "admin.loginTitle": "Admin 控制台",
       "admin.loginSubtitle": "请输入管理员口令（ADMIN_TOKEN）以管理房间和邀请码。",
