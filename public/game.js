@@ -82,6 +82,8 @@
   let currentNickname = "";
   let currentView = null;
   let currentPresence = null;
+  let presenceReceivedAt = 0;
+  let presenceTimer = null;
   let chatMessages = [];
   let draftShips = null;
   let draftRound = null;
@@ -405,9 +407,18 @@
     for (const msg of chatMessages) {
       const item = document.createElement("div");
 
-      if (msg.system === "player_left") {
+      if (msg.system) {
         item.className = "chat-msg system";
-        item.textContent = `${i18n.t("chat.playerLeft", { name: msg.senderName })} · ${formatChatTime(msg.createdAt)}`;
+        const key =
+          msg.system === "player_left"
+            ? "chat.playerLeft"
+            : msg.system === "seat_expired"
+              ? "chat.seatExpired"
+              : null;
+        const body = key
+          ? i18n.t(key, { name: msg.senderName })
+          : String(msg.text || "");
+        item.textContent = `${body} · ${formatChatTime(msg.createdAt)}`;
         chatMessagesEl.appendChild(item);
         continue;
       }
@@ -446,16 +457,74 @@
     }
   }
 
+  function stopPresenceTimer() {
+    if (presenceTimer !== null) {
+      clearInterval(presenceTimer);
+      presenceTimer = null;
+    }
+  }
+
+  function formatCountdown(ms) {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = String(totalSeconds % 60).padStart(2, "0");
+    return `${minutes}:${seconds}`;
+  }
+
+  function renderPresence() {
+    if (!currentView) {
+      stopPresenceTimer();
+      return;
+    }
+
+    const presence = currentPresence || {
+      selfOnline: true,
+      opponentOnline: false,
+      opponentSeatExpiresInMs: null,
+    };
+
+    if (!currentView.opponent.displayName) {
+      stopPresenceTimer();
+      presenceDot.className = "presence-dot waiting";
+      presenceText.textContent = i18n.t("game.presenceWaiting");
+      return;
+    }
+
+    if (presence.opponentOnline) {
+      stopPresenceTimer();
+      presenceDot.className = "presence-dot online";
+      presenceText.textContent = i18n.t("game.presenceOnline");
+      return;
+    }
+
+    presenceDot.className = "presence-dot offline";
+    if (typeof presence.opponentSeatExpiresInMs === "number") {
+      const remaining =
+        presence.opponentSeatExpiresInMs - (Date.now() - presenceReceivedAt);
+      if (remaining > 0) {
+        presenceText.textContent = i18n.t("game.presenceOfflineCountdown", {
+          time: formatCountdown(remaining),
+        });
+        if (presenceTimer === null) {
+          presenceTimer = setInterval(renderPresence, 1000);
+        }
+        return;
+      }
+      stopPresenceTimer();
+      presenceText.textContent = i18n.t("game.presenceSeatOpen");
+      return;
+    }
+
+    stopPresenceTimer();
+    presenceText.textContent = i18n.t("game.presenceOffline");
+  }
+
   function renderGame() {
     if (!currentView) {
       return;
     }
 
     const view = currentView;
-    const presence = currentPresence || {
-      selfOnline: true,
-      opponentOnline: false,
-    };
 
     headerRoomCode.textContent = currentCode;
     headerRoundPill.textContent = i18n.t("game.roundText", { round: view.round });
@@ -468,16 +537,7 @@
       opponent: oppName,
     });
 
-    if (!view.opponent.displayName) {
-      presenceDot.className = "presence-dot waiting";
-      presenceText.textContent = i18n.t("game.presenceWaiting");
-    } else if (presence.opponentOnline) {
-      presenceDot.className = "presence-dot online";
-      presenceText.textContent = i18n.t("game.presenceOnline");
-    } else {
-      presenceDot.className = "presence-dot offline";
-      presenceText.textContent = i18n.t("game.presenceOffline");
-    }
+    renderPresence();
 
     rematchBtn.classList.add("hidden");
     rematchBtn.disabled = false;
@@ -705,8 +765,10 @@
       }
     }
 
+    stopPresenceTimer();
     currentView = null;
     currentPresence = null;
+    presenceReceivedAt = 0;
     chatMessages = [];
     draftShips = null;
     draftRound = null;
@@ -780,6 +842,7 @@
       if (payload.type === "state") {
         currentView = payload.view;
         currentPresence = payload.presence;
+        presenceReceivedAt = Date.now();
 
         if (currentView.phase === "PLACING" && !currentView.self.ready) {
           if (!draftShips || draftRound !== currentView.round) {
@@ -816,6 +879,13 @@
             showGameToast(
               "info",
               i18n.t("game.opponentLeft", { name: payload.message.senderName }),
+            );
+          } else if (payload.message.system === "seat_expired") {
+            showGameToast(
+              "info",
+              i18n.t("game.opponentSeatExpired", {
+                name: payload.message.senderName,
+              }),
             );
           }
         }

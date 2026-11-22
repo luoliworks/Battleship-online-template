@@ -16,6 +16,13 @@ import {
   releaseSeat,
   seatPlayer,
 } from "../../core/engine.ts";
+import {
+  getSeatExpiresInMs,
+  resolveSeat,
+  stampMissingDisconnects,
+  type SeatOnlineMap,
+  type SeatsMap,
+} from "../../core/seats.ts";
 import type {
   ChatMessage,
   ClientAction,
@@ -56,17 +63,9 @@ export interface RoomMeta {
   expiresAt: number;
 }
 
-interface SeatInfo {
-  normalizedName: string;
-  displayName: string;
-}
-
 interface RoomInstance {
   state: GameState;
-  seats: {
-    p1: SeatInfo | null;
-    p2: SeatInfo | null;
-  };
+  seats: SeatsMap;
   connections: {
     p1: WebSocket | null;
     p2: WebSocket | null;
@@ -203,36 +202,56 @@ function sendWsEvent(ws: WebSocket | null, event: ServerEvent): void {
   }
 }
 
+function isOpen(ws: WebSocket | null): boolean {
+  return ws !== null && ws.readyState === WebSocket.OPEN;
+}
+
+function getOnline(room: RoomInstance): SeatOnlineMap {
+  return {
+    p1: isOpen(room.connections.p1),
+    p2: isOpen(room.connections.p2),
+  };
+}
+
+function appendRoomChat(room: RoomInstance, message: ChatMessage): void {
+  room.chatMessages.push(message);
+  if (room.chatMessages.length > MAX_CHAT_HISTORY) {
+    room.chatMessages = room.chatMessages.slice(-MAX_CHAT_HISTORY);
+  }
+}
+
 function broadcastRoomEvent(room: RoomInstance, event: ServerEvent): void {
   const payload = JSON.stringify(event);
   const playerIds: PlayerId[] = ["p1", "p2"];
   for (const playerId of playerIds) {
     const ws = room.connections[playerId];
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(payload);
+    if (isOpen(ws)) {
+      ws!.send(payload);
     }
   }
 }
 
-function broadcastRoomState(room: RoomInstance): void {
+function broadcastRoomState(room: RoomInstance, currentNow: number): void {
   const playerIds: PlayerId[] = ["p1", "p2"];
   for (const playerId of playerIds) {
     const ws = room.connections[playerId];
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
+    if (!isOpen(ws)) {
       continue;
     }
     const opponentId: PlayerId = playerId === "p1" ? "p2" : "p1";
-    const opponentWs = room.connections[opponentId];
+    const opponentOnline = isOpen(room.connections[opponentId]);
     const event: ServerEvent = {
       type: "state",
       view: getPlayerView(room.state, playerId),
       presence: {
         selfOnline: true,
-        opponentOnline:
-          opponentWs !== null && opponentWs.readyState === WebSocket.OPEN,
+        opponentOnline,
+        opponentSeatExpiresInMs: opponentOnline
+          ? null
+          : getSeatExpiresInMs(room.seats[opponentId], false, currentNow),
       },
     };
-    ws.send(JSON.stringify(event));
+    ws!.send(JSON.stringify(event));
   }
 }
 
@@ -312,19 +331,11 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
     }
 
     const normalizedName = displayName.toLowerCase();
-    let playerId: PlayerId | null = null;
+    const online = getOnline(room);
+    room.seats = stampMissingDisconnects(room.seats, online, currentNow).seats;
+    const resolution = resolveSeat(room.seats, online, normalizedName, currentNow);
 
-    if (room.seats.p1?.normalizedName === normalizedName) {
-      playerId = "p1";
-    } else if (room.seats.p2?.normalizedName === normalizedName) {
-      playerId = "p2";
-    } else if (room.seats.p1 === null) {
-      playerId = "p1";
-    } else if (room.seats.p2 === null) {
-      playerId = "p2";
-    }
-
-    if (playerId === null) {
+    if (resolution.kind === "full") {
       sendWsEvent(ws, {
         type: "error",
         code: "ROOM_FULL",
@@ -332,6 +343,24 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
       });
       ws.close(4001, "ROOM_FULL");
       return;
+    }
+
+    const playerId: PlayerId = resolution.playerId;
+
+    if (resolution.kind === "takeover") {
+      room.seats[playerId] = null;
+      room.state = releaseSeat(room.state, playerId, currentNow);
+      const notice: ChatMessage = {
+        id: randomUUID(),
+        senderId: playerId,
+        senderName: resolution.previous.displayName,
+        text: `${resolution.previous.displayName} was offline too long; seat released`,
+        createdAt: currentNow,
+        system: "seat_expired",
+      };
+      appendRoomChat(room, notice);
+      // Newcomer is not in room.connections yet, so it only receives this notice via chat_history.
+      broadcastRoomEvent(room, { type: "chat", message: notice });
     }
 
     const oldWs = room.connections[playerId];
@@ -351,14 +380,14 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
       }
     }
 
-    room.seats[playerId] = { normalizedName, displayName };
+    room.seats[playerId] = { normalizedName, displayName, disconnectedAt: null };
     room.connections[playerId] = ws;
     room.state = seatPlayer(room.state, playerId, displayName, currentNow);
 
     const assignedPlayerId = playerId;
     const activeRoom = room;
 
-    broadcastRoomState(activeRoom);
+    broadcastRoomState(activeRoom, currentNow);
     sendWsEvent(ws, {
       type: "chat_history",
       messages: activeRoom.chatMessages,
@@ -369,8 +398,13 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
         gameRooms.get(code) === activeRoom &&
         activeRoom.connections[assignedPlayerId] === ws
       ) {
+        const disconnectedAt = now();
         activeRoom.connections[assignedPlayerId] = null;
-        broadcastRoomState(activeRoom);
+        const seat = activeRoom.seats[assignedPlayerId];
+        if (seat && seat.normalizedName === normalizedName) {
+          activeRoom.seats[assignedPlayerId] = { ...seat, disconnectedAt };
+        }
+        broadcastRoomState(activeRoom, disconnectedAt);
       }
     };
 
@@ -415,14 +449,9 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
           createdAt: leftAt,
           system: "player_left",
         };
-        activeRoom.chatMessages.push(notice);
-        if (activeRoom.chatMessages.length > MAX_CHAT_HISTORY) {
-          activeRoom.chatMessages = activeRoom.chatMessages.slice(
-            -MAX_CHAT_HISTORY,
-          );
-        }
+        appendRoomChat(activeRoom, notice);
 
-        broadcastRoomState(activeRoom);
+        broadcastRoomState(activeRoom, leftAt);
         broadcastRoomEvent(activeRoom, { type: "chat", message: notice });
         if (
           ws.readyState === WebSocket.OPEN ||
@@ -460,12 +489,7 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
           text,
           createdAt: now(),
         };
-        activeRoom.chatMessages.push(chatMsg);
-        if (activeRoom.chatMessages.length > MAX_CHAT_HISTORY) {
-          activeRoom.chatMessages = activeRoom.chatMessages.slice(
-            -MAX_CHAT_HISTORY,
-          );
-        }
+        appendRoomChat(activeRoom, chatMsg);
         broadcastRoomEvent(activeRoom, {
           type: "chat",
           message: chatMsg,
@@ -473,11 +497,12 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
         return;
       }
 
+      const actionNow = now();
       const result = applyAction(
         activeRoom.state,
         assignedPlayerId,
         message as ClientAction,
-        now(),
+        actionNow,
       );
       if (!result.ok) {
         sendWsEvent(ws, {
@@ -489,7 +514,7 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
       }
 
       activeRoom.state = result.state;
-      broadcastRoomState(activeRoom);
+      broadcastRoomState(activeRoom, actionNow);
     });
   }
 

@@ -5,6 +5,13 @@ import {
   releaseSeat,
   seatPlayer,
 } from "../../core/engine.ts";
+import {
+  getSeatExpiresInMs,
+  resolveSeat,
+  stampMissingDisconnects,
+  type SeatOnlineMap,
+  type SeatsMap,
+} from "../../core/seats.ts";
 import type {
   ChatMessage,
   ClientAction,
@@ -21,16 +28,6 @@ const SEATS_KEY = "seats";
 const CHAT_KEY = "chat";
 const MAX_CHAT_LENGTH = 200;
 const MAX_CHAT_HISTORY = 50;
-
-interface SeatInfo {
-  normalizedName: string;
-  displayName: string;
-}
-
-interface SeatsMap {
-  p1: SeatInfo | null;
-  p2: SeatInfo | null;
-}
 
 interface SocketAttachment {
   playerId: PlayerId;
@@ -113,9 +110,26 @@ export class GameRoom extends DurableObject {
     await this.ctx.storage.put(CHAT_KEY, chat);
   }
 
-  private broadcastEvent(event: ServerEvent): void {
+  private getOnlineSeats(excludeWs?: WebSocket): SeatOnlineMap {
+    const online: SeatOnlineMap = { p1: false, p2: false };
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws === excludeWs) {
+        continue;
+      }
+      const att = getSocketAttachment(ws);
+      if (att) {
+        online[att.playerId] = true;
+      }
+    }
+    return online;
+  }
+
+  private broadcastEvent(event: ServerEvent, excludeWs?: WebSocket): void {
     const payload = JSON.stringify(event);
     for (const ws of this.ctx.getWebSockets()) {
+      if (ws === excludeWs) {
+        continue;
+      }
       const att = getSocketAttachment(ws);
       if (!att) {
         continue;
@@ -128,7 +142,12 @@ export class GameRoom extends DurableObject {
     }
   }
 
-  private broadcastState(state: GameState, excludeWs?: WebSocket): void {
+  private broadcastState(
+    state: GameState,
+    seats: SeatsMap,
+    now: number,
+    excludeWs?: WebSocket,
+  ): void {
     const activeByPlayer: Record<PlayerId, WebSocket | null> = {
       p1: null,
       p2: null,
@@ -151,12 +170,16 @@ export class GameRoom extends DurableObject {
         continue;
       }
       const opponentId: PlayerId = playerId === "p1" ? "p2" : "p1";
+      const opponentOnline = activeByPlayer[opponentId] !== null;
       const event: ServerEvent = {
         type: "state",
         view: getPlayerView(state, playerId),
         presence: {
           selfOnline: true,
-          opponentOnline: activeByPlayer[opponentId] !== null,
+          opponentOnline,
+          opponentSeatExpiresInMs: opponentOnline
+            ? null
+            : getSeatExpiresInMs(seats[opponentId], false, now),
         },
       };
       sendEvent(ws, event);
@@ -246,23 +269,22 @@ export class GameRoom extends DurableObject {
       chat: currentChat,
     } = await this.loadRoom(now);
     const normalizedName = displayName.toLowerCase();
-
-    let playerId: PlayerId | null = null;
-    if (currentSeats.p1?.normalizedName === normalizedName) {
-      playerId = "p1";
-    } else if (currentSeats.p2?.normalizedName === normalizedName) {
-      playerId = "p2";
-    } else if (currentSeats.p1 === null) {
-      playerId = "p1";
-    } else if (currentSeats.p2 === null) {
-      playerId = "p2";
-    }
+    const online = this.getOnlineSeats();
+    const stamped = stampMissingDisconnects(currentSeats, online, now);
+    let workingSeats = stamped.seats;
+    let workingState = currentState;
+    let workingChat = currentChat;
+    let takeoverNotice: ChatMessage | null = null;
+    const resolution = resolveSeat(workingSeats, online, normalizedName, now);
 
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
 
-    if (playerId === null) {
+    if (resolution.kind === "full") {
+      if (stamped.changed) {
+        await this.saveRoom(currentState, workingSeats);
+      }
       server.accept();
       sendEvent(server, {
         type: "error",
@@ -271,6 +293,21 @@ export class GameRoom extends DurableObject {
       });
       server.close(4001, "ROOM_FULL");
       return new Response(null, { status: 101, webSocket: client });
+    }
+
+    const playerId = resolution.playerId;
+    if (resolution.kind === "takeover") {
+      workingSeats = { ...workingSeats, [playerId]: null };
+      workingState = releaseSeat(workingState, playerId, now);
+      takeoverNotice = {
+        id: crypto.randomUUID(),
+        senderId: playerId,
+        senderName: resolution.previous.displayName,
+        text: `${resolution.previous.displayName} was offline too long; seat released`,
+        createdAt: now,
+        system: "seat_expired",
+      };
+      workingChat = [...workingChat, takeoverNotice].slice(-MAX_CHAT_HISTORY);
     }
 
     this.ctx.acceptWebSocket(server);
@@ -304,17 +341,21 @@ export class GameRoom extends DurableObject {
     server.serializeAttachment(attachment);
 
     const nextSeats: SeatsMap = {
-      p1: currentSeats.p1 ? { ...currentSeats.p1 } : null,
-      p2: currentSeats.p2 ? { ...currentSeats.p2 } : null,
+      p1: workingSeats.p1 ? { ...workingSeats.p1 } : null,
+      p2: workingSeats.p2 ? { ...workingSeats.p2 } : null,
     };
-    nextSeats[playerId] = { normalizedName, displayName };
+    nextSeats[playerId] = { normalizedName, displayName, disconnectedAt: null };
 
-    const nextState = seatPlayer(currentState, playerId, displayName, now);
+    const nextState = seatPlayer(workingState, playerId, displayName, now);
     await this.saveRoom(nextState, nextSeats);
-    this.broadcastState(nextState);
+    if (takeoverNotice) {
+      await this.saveChat(workingChat);
+      this.broadcastEvent({ type: "chat", message: takeoverNotice }, server);
+    }
+    this.broadcastState(nextState, nextSeats, now);
     sendEvent(server, {
       type: "chat_history",
-      messages: currentChat,
+      messages: workingChat,
     });
 
     return new Response(null, { status: 101, webSocket: client });
@@ -372,7 +413,7 @@ export class GameRoom extends DurableObject {
 
       await this.saveRoom(nextState, nextSeats);
       await this.saveChat(nextChat);
-      this.broadcastState(nextState, ws);
+      this.broadcastState(nextState, nextSeats, now, ws);
       this.broadcastEvent({ type: "chat", message: notice });
       try {
         ws.close(1000, "LEFT");
@@ -428,7 +469,7 @@ export class GameRoom extends DurableObject {
     }
 
     await this.saveRoom(result.state, seats);
-    this.broadcastState(result.state);
+    this.broadcastState(result.state, seats, now);
   }
 
   private async handleDisconnect(ws: WebSocket): Promise<void> {
@@ -437,8 +478,23 @@ export class GameRoom extends DurableObject {
       return;
     }
     ws.serializeAttachment(null);
-    const { state } = await this.loadRoom(Date.now());
-    this.broadcastState(state, ws);
+    const now = Date.now();
+    const { state, seats } = await this.loadRoom(now);
+    let nextSeats = seats;
+    const seat = seats[att.playerId];
+    if (
+      seat &&
+      seat.normalizedName === att.normalizedName &&
+      !this.getOnlineSeats(ws)[att.playerId]
+    ) {
+      nextSeats = {
+        p1: seats.p1 ? { ...seats.p1 } : null,
+        p2: seats.p2 ? { ...seats.p2 } : null,
+      };
+      nextSeats[att.playerId] = { ...seat, disconnectedAt: now };
+      await this.saveRoom(state, nextSeats);
+    }
+    this.broadcastState(state, nextSeats, now, ws);
   }
 
   override async webSocketClose(

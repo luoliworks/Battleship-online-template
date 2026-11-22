@@ -7,6 +7,13 @@ import {
   seatPlayer,
   validateShips,
 } from "./engine.ts";
+import {
+  SEAT_RECLAIM_GRACE_MS,
+  getSeatExpiresInMs,
+  resolveSeat,
+  stampMissingDisconnects,
+  type SeatsMap,
+} from "./seats.ts";
 import type { GameState, ShipPlacement } from "./types.ts";
 import { getPlayerView } from "./view.ts";
 
@@ -655,5 +662,97 @@ describe("Pure Battleship Core Engine", () => {
     assert.equal(reseated.phase, "PLACING");
     assert.equal(reseated.players.p1.displayName, "Joe");
     assert.deepEqual(JSON.parse(JSON.stringify(reseated)), reseated);
+  });
+
+  it("resolveSeat, stampMissingDisconnects, and getSeatExpiresInMs implement lazy 120s seat grace", () => {
+    const baseNow = 1_000_000;
+
+    // 1. Name reclaim works even when offline past grace
+    const expiredSeats: SeatsMap = {
+      p1: { normalizedName: "alice", displayName: "Alice", disconnectedAt: 1000 },
+      p2: { normalizedName: "bob", displayName: "Bob", disconnectedAt: null },
+    };
+    assert.deepEqual(
+      resolveSeat(expiredSeats, { p1: false, p2: true }, "alice", 1000 + SEAT_RECLAIM_GRACE_MS + 60_000),
+      { kind: "reclaim", playerId: "p1" },
+    );
+
+    // 2. Empty seat preferred over takeover of an expired seat
+    const oneEmptyOneExpired: SeatsMap = {
+      p1: { normalizedName: "alice", displayName: "Alice", disconnectedAt: 1000 },
+      p2: null,
+    };
+    assert.deepEqual(
+      resolveSeat(oneEmptyOneExpired, { p1: false, p2: false }, "charlie", 1000 + SEAT_RECLAIM_GRACE_MS + 1000),
+      { kind: "empty", playerId: "p2" },
+    );
+
+    // 3. Offline grace boundary: 119_999ms -> full, 120_000ms -> takeover with previous
+    const p1OfflineSeats: SeatsMap = {
+      p1: { normalizedName: "alice", displayName: "Alice", disconnectedAt: baseNow },
+      p2: { normalizedName: "bob", displayName: "Bob", disconnectedAt: null },
+    };
+    assert.deepEqual(
+      resolveSeat(p1OfflineSeats, { p1: false, p2: true }, "joe", baseNow + 119_999),
+      { kind: "full" },
+    );
+    assert.deepEqual(
+      resolveSeat(p1OfflineSeats, { p1: false, p2: true }, "joe", baseNow + 120_000),
+      {
+        kind: "takeover",
+        playerId: "p1",
+        previous: { normalizedName: "alice", displayName: "Alice", disconnectedAt: baseNow },
+      },
+    );
+
+    // 4. Online seat with an old disconnectedAt is never taken over
+    assert.deepEqual(
+      resolveSeat(p1OfflineSeats, { p1: true, p2: true }, "joe", baseNow + 500_000),
+      { kind: "full" },
+    );
+
+    // 5. Both expired -> smallest disconnectedAt wins (tie -> p1)
+    const bothExpired: SeatsMap = {
+      p1: { normalizedName: "alice", displayName: "Alice", disconnectedAt: baseNow + 5000 },
+      p2: { normalizedName: "bob", displayName: "Bob", disconnectedAt: baseNow + 1000 },
+    };
+    assert.deepEqual(
+      resolveSeat(bothExpired, { p1: false, p2: false }, "joe", baseNow + 5000 + SEAT_RECLAIM_GRACE_MS),
+      {
+        kind: "takeover",
+        playerId: "p2",
+        previous: { normalizedName: "bob", displayName: "Bob", disconnectedAt: baseNow + 1000 },
+      },
+    );
+    const tiedExpired: SeatsMap = {
+      p1: { normalizedName: "alice", displayName: "Alice", disconnectedAt: baseNow },
+      p2: { normalizedName: "bob", displayName: "Bob", disconnectedAt: baseNow },
+    };
+    const tiedRes = resolveSeat(tiedExpired, { p1: false, p2: false }, "joe", baseNow + SEAT_RECLAIM_GRACE_MS);
+    assert.equal(tiedRes.kind, "takeover");
+    if (tiedRes.kind === "takeover") {
+      assert.equal(tiedRes.playerId, "p1");
+    }
+
+    // 6. stampMissingDisconnects stamps offline missing timestamps & clears stale online ones
+    const legacySeats: SeatsMap = {
+      p1: { normalizedName: "alice", displayName: "Alice" },
+      p2: { normalizedName: "bob", displayName: "Bob", disconnectedAt: baseNow - 500 },
+    };
+    const stamped = stampMissingDisconnects(legacySeats, { p1: false, p2: true }, baseNow);
+    assert.equal(stamped.changed, true);
+    assert.equal(stamped.seats.p1?.disconnectedAt, baseNow);
+    assert.equal(stamped.seats.p2?.disconnectedAt, null);
+    assert.equal(
+      stampMissingDisconnects(stamped.seats, { p1: false, p2: true }, baseNow + 1000).changed,
+      false,
+    );
+
+    // 7. getSeatExpiresInMs returns null when empty/online and clamped remaining ms when offline
+    assert.equal(getSeatExpiresInMs(null, false, baseNow), null);
+    assert.equal(getSeatExpiresInMs(p1OfflineSeats.p1, true, baseNow + 5000), null);
+    assert.equal(getSeatExpiresInMs({ normalizedName: "a", displayName: "A" }, false, baseNow), null);
+    assert.equal(getSeatExpiresInMs(p1OfflineSeats.p1, false, baseNow + 45_000), 75_000);
+    assert.equal(getSeatExpiresInMs(p1OfflineSeats.p1, false, baseNow + 150_000), 0);
   });
 });

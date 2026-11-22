@@ -903,4 +903,161 @@ describe("Node.js Adapter Server", () => {
       await handle.close();
     }
   });
+
+  it("holds disconnected seat for 120s grace, allows lazy takeover after expiry, and preserves reclaim if unclaimed", async () => {
+    let clock = 1_700_000_000_000;
+    const { handle, baseUrl, wsBaseUrl } = await startTestServer({
+      adminToken: "admin-123",
+      now: () => clock,
+    });
+
+    try {
+      const headers = {
+        Authorization: "Bearer admin-123",
+        "Content-Type": "application/json",
+      };
+
+      // Scenario 1: Jack disconnects, Joe blocked at 60s, Joe takes over at 120s, Jack then gets ROOM_FULL.
+      const create1 = await fetch(`${baseUrl}/api/admin/rooms`, {
+        method: "POST",
+        headers,
+        body: "{}",
+      });
+      const { code: code1 } = (await create1.json()) as { code: string };
+
+      const jack = await connectWsClient(`${wsBaseUrl}/ws?code=${code1}&name=Jack`);
+      await jack.nextEvent((ev) => ev.type === "state");
+      await jack.nextEvent((ev) => ev.type === "chat_history");
+
+      const bob = await connectWsClient(`${wsBaseUrl}/ws?code=${code1}&name=Bob`);
+      await bob.nextEvent((ev) => ev.type === "state");
+      await bob.nextEvent((ev) => ev.type === "chat_history");
+      await jack.nextEvent((ev) => ev.type === "state");
+
+      jack.ws.send(JSON.stringify({ type: "place_ships", ships: P1_SHIPS }));
+      await jack.nextEvent((ev) => ev.type === "state");
+      await bob.nextEvent((ev) => ev.type === "state");
+
+      bob.ws.send(JSON.stringify({ type: "place_ships", ships: P2_SHIPS }));
+      const bobPlaying = await bob.nextEvent((ev) => ev.type === "state");
+      assert.equal(bobPlaying.type, "state");
+      assert.equal(bobPlaying.view.phase, "PLAYING");
+      await jack.nextEvent((ev) => ev.type === "state");
+
+      jack.ws.send(JSON.stringify({ type: "fire", x: 3, y: 1 }));
+      await jack.nextEvent((ev) => ev.type === "state");
+      await bob.nextEvent((ev) => ev.type === "state");
+
+      // Jack drops unexpectedly
+      await jack.close();
+      const bobOffline = await bob.nextEvent((ev) => ev.type === "state");
+      assert.equal(bobOffline.type, "state");
+      assert.equal(bobOffline.view.phase, "PLAYING");
+      assert.equal(bobOffline.presence.opponentOnline, false);
+      assert.equal(bobOffline.presence.opponentSeatExpiresInMs, 120_000);
+
+      // 60s later: still within grace -> Joe rejected with ROOM_FULL
+      clock += 60_000;
+      const joeEarly = await connectWsClient(`${wsBaseUrl}/ws?code=${code1}&name=Joe`);
+      const joeEarlyErr = await joeEarly.nextEvent((ev) => ev.type === "error");
+      assert.equal(joeEarlyErr.type, "error");
+      assert.equal(joeEarlyErr.code, "ROOM_FULL");
+      await joeEarly.waitForClose();
+
+      // Another 60s (120s total): Joe lazily takes over p1 seat
+      clock += 60_000;
+      const joe = await connectWsClient(`${wsBaseUrl}/ws?code=${code1}&name=Joe`);
+      const joeState = await joe.nextEvent(
+        (ev) => ev.type === "state" || ev.type === "error",
+      );
+      assert.equal(joeState.type, "state");
+      assert.equal(joeState.view.self.id, "p1");
+      assert.equal(joeState.view.self.displayName, "Joe");
+      assert.equal(joeState.view.opponent.displayName, "Bob");
+      assert.equal(joeState.view.phase, "PLACING");
+      assert.equal(joeState.view.round, 1);
+
+      const joeHistory = await joe.nextEvent((ev) => ev.type === "chat_history");
+      assert.equal(joeHistory.type, "chat_history");
+      assert.equal(joeHistory.messages.at(-1)?.system, "seat_expired");
+      assert.equal(joeHistory.messages.at(-1)?.senderName, "Jack");
+
+      const bobExpiredChat = await bob.nextEvent((ev) => ev.type === "chat");
+      assert.equal(bobExpiredChat.type, "chat");
+      assert.equal(bobExpiredChat.message.system, "seat_expired");
+      assert.equal(bobExpiredChat.message.senderName, "Jack");
+
+      const bobReset = await bob.nextEvent((ev) => ev.type === "state");
+      assert.equal(bobReset.type, "state");
+      assert.equal(bobReset.view.phase, "PLACING");
+      assert.equal(bobReset.view.round, 1);
+      assert.equal(bobReset.view.opponent.displayName, "Joe");
+
+      // Jack returns after losing the seat -> ROOM_FULL
+      const jackLate = await connectWsClient(`${wsBaseUrl}/ws?code=${code1}&name=Jack`);
+      const jackLateErr = await jackLate.nextEvent((ev) => ev.type === "error");
+      assert.equal(jackLateErr.type, "error");
+      assert.equal(jackLateErr.code, "ROOM_FULL");
+      await jackLate.waitForClose();
+
+      await joe.close();
+      await bob.close();
+
+      // Scenario 2: Alice disconnects for 150s with no newcomer -> Alice can still reclaim PLAYING match.
+      const create2 = await fetch(`${baseUrl}/api/admin/rooms`, {
+        method: "POST",
+        headers,
+        body: "{}",
+      });
+      const { code: code2 } = (await create2.json()) as { code: string };
+
+      const alice = await connectWsClient(`${wsBaseUrl}/ws?code=${code2}&name=Alice`);
+      await alice.nextEvent((ev) => ev.type === "state");
+      await alice.nextEvent((ev) => ev.type === "chat_history");
+
+      const bob2 = await connectWsClient(`${wsBaseUrl}/ws?code=${code2}&name=Bob`);
+      await bob2.nextEvent((ev) => ev.type === "state");
+      await bob2.nextEvent((ev) => ev.type === "chat_history");
+      await alice.nextEvent((ev) => ev.type === "state");
+
+      alice.ws.send(JSON.stringify({ type: "place_ships", ships: P1_SHIPS }));
+      await alice.nextEvent((ev) => ev.type === "state");
+      await bob2.nextEvent((ev) => ev.type === "state");
+
+      bob2.ws.send(JSON.stringify({ type: "place_ships", ships: P2_SHIPS }));
+      await bob2.nextEvent((ev) => ev.type === "state");
+      await alice.nextEvent((ev) => ev.type === "state");
+
+      alice.ws.send(JSON.stringify({ type: "fire", x: 3, y: 1 }));
+      await alice.nextEvent((ev) => ev.type === "state");
+      await bob2.nextEvent((ev) => ev.type === "state");
+
+      await alice.close();
+      const bob2Offline = await bob2.nextEvent((ev) => ev.type === "state");
+      assert.equal(bob2Offline.type, "state");
+      assert.equal(bob2Offline.presence.opponentOnline, false);
+      assert.equal(bob2Offline.presence.opponentSeatExpiresInMs, 120_000);
+
+      clock += 150_000;
+      const aliceBack = await connectWsClient(`${wsBaseUrl}/ws?code=${code2}&name=Alice`);
+      const aliceBackState = await aliceBack.nextEvent(
+        (ev) => ev.type === "state" || ev.type === "error",
+      );
+      assert.equal(aliceBackState.type, "state");
+      assert.equal(aliceBackState.view.phase, "PLAYING");
+      assert.equal(aliceBackState.view.myBoard.ships.length, 3);
+      assert.equal(aliceBackState.view.enemyBoard.myShots.length, 1);
+
+      const bob2Online = await bob2.nextEvent((ev) => ev.type === "state");
+      assert.equal(bob2Online.type, "state");
+      assert.equal(bob2Online.view.phase, "PLAYING");
+      assert.equal(bob2Online.presence.opponentOnline, true);
+      assert.equal(bob2Online.presence.opponentSeatExpiresInMs, null);
+
+      await aliceBack.close();
+      await bob2.close();
+    } finally {
+      await handle.close();
+    }
+  });
 });

@@ -166,7 +166,7 @@ battleship-demo/
    * 发送房间聊天（仅适配层处理，不进 `src/core/`，限制 1–200 字符）：`{ "type": "chat", "text": "..." }`  
    * 主动离开并释放座位（适配层处理，调用纯函数 `releaseSeat`）：`{ "type": "leave" }` → 服务端清空该座位、对局回到 `WAITING` / Round 1、写入一条系统聊天消息（`system: "player_left"`），随后以 `close(1000, "LEFT")` 关闭该连接  
 4. **服务端 → 客户端（`ServerEvent`）**：  
-   1. 状态与在线态快照：`{ "type": "state", "view": PlayerView, "presence": { "selfOnline": true, "opponentOnline": boolean } }`（首次连入、状态变化、断线重连以及对手上线/离线时均下发最新快照，`presence` 由外壳根据当前活跃连接动态计算，不写入纯内核）  
+   1. 状态与在线态快照：`{ "type": "state", "view": PlayerView, "presence": { "selfOnline": true, "opponentOnline": boolean, "opponentSeatExpiresInMs": number | null } }`（首次连入、状态变化、断线重连以及对手上线/离线时均下发最新快照，`presence` 由外壳根据当前活跃连接动态计算，不写入纯内核；对手离线时附带距离座位可被新玩家接手的剩余毫秒数 `opponentSeatExpiresInMs`）  
    2. 房间聊天历史（新连接建立时下发，最多最近 50 条）：`{ "type": "chat_history", "messages": ChatMessage[] }`  
    3. 实时聊天消息广播：`{ "type": "chat", "message": ChatMessage }`  
    4. 明确错误提示：`{ "type": "error", "code": "ROOM_FULL" | "INVALID_CODE" | "EXPIRED_CODE" | "INVALID_ACTION" | "REPLACED_BY_NEW_SESSION" | "ROOM_RESET" | "ROOM_CLOSED", "message": "..." }`  
@@ -191,7 +191,7 @@ battleship-demo/
   * **换设备 / 关掉标签页重开**：只要在新设备上输入同一个昵称，服务端识别为已入座玩家，向旧连接发送 `REPLACED_BY_NEW_SESSION` 并关闭（`4002`），将新连接绑定到该座位并立即下发最新 `PlayerView`。  
   * **本地双开自测**：同一浏览器打开两个普通标签页，Tab 1 填 `Alice`、Tab 2 填 `Bob`，因 `sessionStorage` 按标签页隔离，可直接双人联机测试，无需开隐身窗口。  
   * **陌生第 3 人拦截**：输入第 3 个不同昵称且房间已满时，短暂接受 WebSocket → 立即发送 `{ type: "error", code: "ROOM_FULL", message: "房间已满，请联系 Admin" }` → `close(4001)`，前端弹出明确提示。  
-  * **掉线 vs 主动离开**：意外断线（关标签页、断网）时服务端**保留座位**等待同名重连；只有点击 `Leave / Switch Name`（发送 `leave`）才会**释放座位**，此后任意新昵称都可入座，不会再触发 `ROOM_FULL`。
+  * **掉线 vs 主动离开（120 秒懒过期保护）**：意外断线（关标签页、断网）时服务端记录 `disconnectedAt` 并**保留座位 120 秒**，宽限期内仅允许原昵称重连、第三方新昵称仍拦截为 `ROOM_FULL`；超过 120 秒后采用**无定时器懒检查**（仅在新玩家尝试入房时判定）：若期间无人接手，原玩家仍可随时用原昵称无损恢复对局；一旦有新昵称加入并接管该超期座位，服务端调用 `releaseSeat` 重置回 Round 1 `PLACING`、写入系统聊天消息（`system: "seat_expired"`）并允许新玩家立即入座，原玩家再回来则会收到 `ROOM_FULL`。只有点击 `Leave / Switch Name`（发送 `leave`）才会**立即释放座位**。
 
 ## **5.2 前端交互与多语言（i18n）约定**
 
@@ -211,13 +211,13 @@ battleship-demo/
 
 ## **5.3 对手在线状态指示**
 
-外壳监听连接建立与断开（Cloudflare `webSocketClose` / `webSocketError`，Node.js `ws.on("close")`），一旦玩家上线或离线，向房间内另一名在线玩家推送包含最新 `presence.opponentOnline` 的状态消息，界面顶部实时展示“对手在线 / 对手已离线（等待重连...）”。
+外壳监听连接建立与断开（Cloudflare `webSocketClose` / `webSocketError`，Node.js `ws.on("close")`），一旦玩家上线或离线，向房间内另一名在线玩家推送包含最新 `presence.opponentOnline` 与 `presence.opponentSeatExpiresInMs` 的状态消息，界面顶部实时展示“对手在线 / 对手已离线，座位将在 1:45 后开放给新玩家”；倒计时归零后转为“对手已离线，座位已开放（对手仍可回来，新玩家也可加入）”。
 
 ## **5.4 Cloudflare 休眠与状态恢复约束**
 
 * 房间必须使用 WebSocket Hibernation API（`this.ctx.acceptWebSocket(server)`），并通过 `server.serializeAttachment({ playerId, normalizedName, displayName })` 存储单条连接的轻量身份标签（远低于 16 KiB 上限）。  
-* 房间状态与座位表采用 `getState()` 内存缓存 \+ 变更落盘 `this.ctx.storage.put(...)` \+ 缓存为 `null` 时从存储兜底加载。  
-* 邀请码过期采用懒检查，**禁止**为房间或邀请码设置轮询或高频心跳，让思考空窗期自然休眠以节省活跃内存时长（GB-s）。
+* 房间状态与座位表（含 `disconnectedAt` 离线时间戳）采用 `getState()` 内存缓存 \+ 变更落盘 `this.ctx.storage.put(...)` \+ 缓存为 `null` 时从存储兜底加载；断线发生时亦同步落盘 `disconnectedAt` 以跨越 DO 休眠保留计时基准。  
+* 邀请码过期与断线座位过期均采用懒检查，**禁止**为房间、邀请码或断线宽限期设置 DO Alarm、轮询或高频心跳，让思考与离线空窗期自然休眠以节省活跃内存时长（GB-s）。
 
 # **六、验收清单（供 Antigravity 自测与人工验收）**
 
@@ -233,5 +233,6 @@ battleship-demo/
 6. **重置与销毁验证**：Admin 点击“重置房间”后，原连接被断开、房间清空但原邀请码仍可重新进房开新局；点击“销毁房间”后，原邀请码立即失效并无法重连。  
 7. **多语言、弹窗交互与双环境构建校验**：首次访问默认为英文且支持一键切换中文并持久化；`PLACING` 弹出含 6×6 预览的布阵弹窗、`FINISHED` 弹出胜负弹窗并支持 `Review Board` 与 `Rematch`；顶栏 `Leave / Switch Name` 可清空会话退回入房页；`npm test`、`npm run typecheck` 及 `npx wrangler deploy --dry-run --env dev` 均通过。  
 8. **房间聊天与双人确认 `Reset Game` 校验**：对局双方可在棋盘下方聊天区实时互通消息（最多 200 字、保留最近 50 条、刷新重连自动恢复）；Admin 重置/销毁房间后聊天记录被清空；对局中任一方发起 `Reset Game`、对方同意后棋局恢复 Round 1 `PLACING`（`p1` 先手）且双方座位与聊天记录保持完整。  
-9. **主动离开释放座位校验**：对局中 Jack 点击 `Leave / Switch Name` 并确认后，对手 Bob 界面回到 `WAITING` 并看到“Jack 离开了房间”；此时以新昵称 Joe 使用同一邀请码入房可成功入座（不再提示 `ROOM_FULL`），双方进入 Round 1 `PLACING`；再有第 3 个昵称进入仍被 `ROOM_FULL` 拦截。
+9. **主动离开释放座位校验**：对局中 Jack 点击 `Leave / Switch Name` 并确认后，对手 Bob 界面回到 `WAITING` 并看到“Jack 离开了房间”；此时以新昵称 Joe 使用同一邀请码入房可成功入座（不再提示 `ROOM_FULL`），双方进入 Round 1 `PLACING`；再有第 3 个昵称进入仍被 `ROOM_FULL` 拦截。  
+10. **断线 120 秒懒过期保护校验**：对局中 Jack 意外断线后，对手 Bob 顶栏立即开始 2 分钟倒计时并在归零后提示座位已开放；120 秒内新昵称 Joe 仍被拦截为 `ROOM_FULL`；满 120 秒后 Joe 可成功接管座位、房间重置为 Round 1 `PLACING` 且聊天出现超时让座系统提示（随后 Jack 返回收到 `ROOM_FULL`）；若超时后始终无人接手，Jack 用原昵称回来仍可无损恢复原战局。
 

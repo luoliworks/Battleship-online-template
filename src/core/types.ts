@@ -131,6 +131,7 @@ export interface PlayerView {
 export interface PresenceState {
   selfOnline: boolean;
   opponentOnline: boolean;
+  opponentSeatExpiresInMs: number | null;
 }
 
 export interface ChatMessage {
@@ -140,7 +141,7 @@ export interface ChatMessage {
   text: string;
   createdAt: number;
   /** Present on adapter-generated system notices (rendered localized by the client). */
-  system?: "player_left";
+  system?: "player_left" | "seat_expired";
 }
 
 export type ServerEvent =
