@@ -34,12 +34,14 @@ export function getPlayerView(state: GameState, playerId: PlayerId): PlayerView 
       displayName: self.displayName,
       ready: self.ready,
       rematchVoted: state.rematchVotes[playerId],
+      resetVoted: Boolean(state.resetVotes?.[playerId]),
     },
     opponent: {
       id: opponentId,
       displayName: opponent.displayName,
       ready: opponent.ready,
       rematchVoted: state.rematchVotes[opponentId],
+      resetVoted: Boolean(state.resetVotes?.[opponentId]),
       shipsRemaining: FLEET_SPEC.length - sunkEnemyShips.length,
     },
     myBoard: {

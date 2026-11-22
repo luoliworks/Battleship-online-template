@@ -15,7 +15,7 @@ Minimal 6×6 two-player Battleship online demo built as a reusable turn-based mu
 - **Server-Authoritative & Anti-Cheat**: `getPlayerView(state, playerId)` strips un-sunk enemy ship coordinates while the match is active and reveals full boards only after `FINISHED`.
 - **Fail-Closed Admin Auth & Invite Codes**: `ADMIN_TOKEN` bearer auth (rejects all `/api/admin/*` requests when unset or empty), configurable TTL (`1 / 3 / 7 / 15 / 30` days), lazy expiration check without waking `GameRoom` DOs, plus room reset (`4003`) and destroy (`4004`).
 - **Nickname Binding + `sessionStorage` Reconnect**: Seamless F5 refresh recovery, case-insensitive cross-device/tab seat takeover (`4002`), dual-tab testing in normal browser tabs, 3rd-player `ROOM_FULL` blocking (`4001`), and live opponent presence indicator.
-- **Zero-Build Bilingual Frontend (`public/`)**: English default with live `EN / 中文` toggle (`localStorage`), placement modal with random fleet generator & 6×6 preview, and post-game result modal with board review & mutual rematch (rotating starting player).
+- **Zero-Build Bilingual Frontend (`public/`)**: English default with live `EN / 中文` toggle (`localStorage`), placement modal with random fleet generator & 6×6 preview, post-game result modal with board review & mutual rematch (rotating starting player), **mutual in-game `Reset Game`** (returns to Round 1 `PLACING` while preserving seats & chat), and **adapter-layer persistent Room Chat** (last 50 messages retained across reconnects; cleared on Admin Reset/Destroy).
 
 ---
 

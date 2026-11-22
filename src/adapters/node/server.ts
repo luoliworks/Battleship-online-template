@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import {
   createServer,
@@ -12,7 +12,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { applyAction, createInitialState, seatPlayer } from "../../core/engine.ts";
 import type {
+  ChatMessage,
   ClientAction,
+  ClientMessage,
   ErrorCode,
   GameState,
   PlayerId,
@@ -26,6 +28,8 @@ const ALLOWED_TTL_DAYS = [1, 3, 7, 15, 30] as const;
 const DEFAULT_TTL_DAYS = 7;
 const DEFAULT_MAX_PLAYERS = 2;
 const MAX_NOTE_LENGTH = 100;
+const MAX_CHAT_LENGTH = 200;
+const MAX_CHAT_HISTORY = 50;
 const MAX_BODY_BYTES = 16 * 1024;
 const MS_PER_DAY = 86_400_000;
 
@@ -62,6 +66,7 @@ interface RoomInstance {
     p1: WebSocket | null;
     p2: WebSocket | null;
   };
+  chatMessages: ChatMessage[];
 }
 
 export interface NodeServerOptions {
@@ -193,6 +198,17 @@ function sendWsEvent(ws: WebSocket | null, event: ServerEvent): void {
   }
 }
 
+function broadcastRoomEvent(room: RoomInstance, event: ServerEvent): void {
+  const payload = JSON.stringify(event);
+  const playerIds: PlayerId[] = ["p1", "p2"];
+  for (const playerId of playerIds) {
+    const ws = room.connections[playerId];
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(payload);
+    }
+  }
+}
+
 function broadcastRoomState(room: RoomInstance): void {
   const playerIds: PlayerId[] = ["p1", "p2"];
   for (const playerId of playerIds) {
@@ -285,6 +301,7 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
         state: createInitialState(currentNow),
         seats: { p1: null, p2: null },
         connections: { p1: null, p2: null },
+        chatMessages: [],
       };
       gameRooms.set(code, room);
     }
@@ -337,6 +354,10 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
     const activeRoom = room;
 
     broadcastRoomState(activeRoom);
+    sendWsEvent(ws, {
+      type: "chat_history",
+      messages: activeRoom.chatMessages,
+    });
 
     const handleDisconnect = () => {
       if (
@@ -359,10 +380,10 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
         return;
       }
 
-      let action: ClientAction;
+      let message: ClientMessage;
       try {
         const text = typeof data === "string" ? data : data.toString("utf8");
-        action = JSON.parse(text) as ClientAction;
+        message = JSON.parse(text) as ClientMessage;
       } catch {
         sendWsEvent(ws, {
           type: "error",
@@ -372,10 +393,50 @@ export function createNodeServer(options: NodeServerOptions = {}): NodeServerHan
         return;
       }
 
+      if (message && typeof message === "object" && message.type === "chat") {
+        const text = typeof message.text === "string" ? message.text.trim() : "";
+        if (text.length === 0) {
+          sendWsEvent(ws, {
+            type: "error",
+            code: "INVALID_ACTION",
+            message: "聊天消息不能为空",
+          });
+          return;
+        }
+        if (text.length > MAX_CHAT_LENGTH) {
+          sendWsEvent(ws, {
+            type: "error",
+            code: "INVALID_ACTION",
+            message: "聊天消息不能超过 200 个字符",
+          });
+          return;
+        }
+
+        const chatMsg: ChatMessage = {
+          id: randomUUID(),
+          senderId: assignedPlayerId,
+          senderName:
+            activeRoom.seats[assignedPlayerId]?.displayName ?? displayName,
+          text,
+          createdAt: now(),
+        };
+        activeRoom.chatMessages.push(chatMsg);
+        if (activeRoom.chatMessages.length > MAX_CHAT_HISTORY) {
+          activeRoom.chatMessages = activeRoom.chatMessages.slice(
+            -MAX_CHAT_HISTORY,
+          );
+        }
+        broadcastRoomEvent(activeRoom, {
+          type: "chat",
+          message: chatMsg,
+        });
+        return;
+      }
+
       const result = applyAction(
         activeRoom.state,
         assignedPlayerId,
-        action,
+        message as ClientAction,
         now(),
       );
       if (!result.ok) {

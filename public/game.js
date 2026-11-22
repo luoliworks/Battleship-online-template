@@ -36,9 +36,19 @@
 
   const phaseTitle = document.getElementById("phase-title");
   const phaseSubtitle = document.getElementById("phase-subtitle");
+  const resetBanner = document.getElementById("reset-banner");
+  const resetBannerText = document.getElementById("reset-banner-text");
+  const acceptResetBtn = document.getElementById("accept-reset-btn");
+  const cancelResetBtn = document.getElementById("cancel-reset-btn");
+  const resetGameBtn = document.getElementById("reset-game-btn");
   const randomizeShipsBtn = document.getElementById("randomize-ships-btn");
   const lockShipsBtn = document.getElementById("lock-ships-btn");
   const rematchBtn = document.getElementById("rematch-btn");
+
+  const chatCountEl = document.getElementById("chat-count");
+  const chatMessagesEl = document.getElementById("chat-messages");
+  const chatForm = document.getElementById("chat-form");
+  const chatInput = document.getElementById("chat-input");
 
   const placementModal = document.getElementById("placement-modal");
   const placementModalTitle = document.getElementById("placement-modal-title");
@@ -68,6 +78,7 @@
   let currentNickname = "";
   let currentView = null;
   let currentPresence = null;
+  let chatMessages = [];
   let draftShips = null;
   let draftRound = null;
   let dismissedResultRound = null;
@@ -328,6 +339,62 @@
     });
   }
 
+  function formatChatTime(timestamp) {
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+    const hh = String(date.getHours()).padStart(2, "0");
+    const mm = String(date.getMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
+  }
+
+  function renderChat(scrollToBottom) {
+    chatCountEl.textContent = i18n.t("chat.count", {
+      count: chatMessages.length,
+    });
+    chatMessagesEl.replaceChildren();
+
+    if (chatMessages.length === 0) {
+      const emptyEl = document.createElement("div");
+      emptyEl.className = "chat-empty";
+      emptyEl.textContent = i18n.t("chat.empty");
+      chatMessagesEl.appendChild(emptyEl);
+      return;
+    }
+
+    const selfId = currentView && currentView.self ? currentView.self.id : null;
+    for (const msg of chatMessages) {
+      const item = document.createElement("div");
+      item.className = `chat-msg ${selfId && msg.senderId === selfId ? "self" : "opponent"}`;
+
+      const meta = document.createElement("div");
+      meta.className = "chat-msg-meta";
+
+      const sender = document.createElement("span");
+      sender.className = "chat-msg-sender";
+      sender.textContent = msg.senderName;
+
+      const time = document.createElement("span");
+      time.textContent = formatChatTime(msg.createdAt);
+
+      meta.appendChild(sender);
+      meta.appendChild(time);
+
+      const textEl = document.createElement("div");
+      textEl.className = "chat-msg-text";
+      textEl.textContent = msg.text;
+
+      item.appendChild(meta);
+      item.appendChild(textEl);
+      chatMessagesEl.appendChild(item);
+    }
+
+    if (scrollToBottom) {
+      chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+    }
+  }
+
   function renderGame() {
     if (!currentView) {
       return;
@@ -363,7 +430,40 @@
 
     rematchBtn.classList.add("hidden");
     rematchBtn.disabled = false;
+    resetGameBtn.classList.add("hidden");
+    resetGameBtn.disabled = false;
+    resetGameBtn.textContent = i18n.t("game.resetGameBtn");
+    resetBanner.className = "alert warning hidden";
+    acceptResetBtn.classList.add("hidden");
     placementModal.classList.add("hidden");
+
+    const canRequestReset =
+      view.phase === "PLACING" || view.phase === "PLAYING";
+    if (canRequestReset) {
+      if (view.self.resetVoted && !view.opponent.resetVoted) {
+        resetGameBtn.classList.remove("hidden");
+        resetGameBtn.disabled = true;
+        resetGameBtn.textContent = i18n.t("game.resetWaitingBtn");
+
+        resetBanner.className = "alert info";
+        resetBannerText.textContent = i18n.t("game.resetWaitingBanner", {
+          opponent: oppName,
+        });
+        acceptResetBtn.classList.add("hidden");
+        cancelResetBtn.textContent = i18n.t("game.cancelResetBtn");
+        resetBanner.classList.remove("hidden");
+      } else if (!view.self.resetVoted && view.opponent.resetVoted) {
+        resetBanner.className = "alert warning";
+        resetBannerText.textContent = i18n.t("game.resetIncomingBanner", {
+          opponent: oppName,
+        });
+        acceptResetBtn.classList.remove("hidden");
+        cancelResetBtn.textContent = i18n.t("game.declineResetBtn");
+        resetBanner.classList.remove("hidden");
+      } else {
+        resetGameBtn.classList.remove("hidden");
+      }
+    }
 
     if (view.phase !== "FINISHED") {
       dismissedResultRound = null;
@@ -556,6 +656,7 @@
 
     currentView = null;
     currentPresence = null;
+    chatMessages = [];
     draftShips = null;
     draftRound = null;
     dismissedResultRound = null;
@@ -563,9 +664,11 @@
     gameView.classList.add("hidden");
     joinView.classList.remove("hidden");
     disconnectBanner.classList.add("hidden");
+    resetBanner.classList.add("hidden");
     placementModal.classList.add("hidden");
     resultModal.classList.add("hidden");
     hideGameToast();
+    renderChat(false);
 
     if (currentCode) {
       codeInput.value = currentCode;
@@ -640,6 +743,24 @@
         gameView.classList.remove("hidden");
         hideJoinAlert();
         renderGame();
+        renderChat(false);
+        return;
+      }
+
+      if (payload.type === "chat_history") {
+        chatMessages = Array.isArray(payload.messages) ? payload.messages : [];
+        renderChat(true);
+        return;
+      }
+
+      if (payload.type === "chat") {
+        if (payload.message) {
+          chatMessages.push(payload.message);
+          if (chatMessages.length > 50) {
+            chatMessages = chatMessages.slice(-50);
+          }
+          renderChat(true);
+        }
         return;
       }
 
@@ -787,6 +908,26 @@
 
   rematchBtn.addEventListener("click", handleRematchClick);
   resultRematchBtn.addEventListener("click", handleRematchClick);
+  resetGameBtn.addEventListener("click", () => {
+    sendAction({ type: "reset_game" });
+  });
+  acceptResetBtn.addEventListener("click", () => {
+    sendAction({ type: "reset_game" });
+  });
+  cancelResetBtn.addEventListener("click", () => {
+    sendAction({ type: "cancel_reset" });
+  });
+  chatForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = chatInput.value.trim();
+    if (!text) {
+      showGameToast("error", i18n.t("chat.emptyError"));
+      chatInput.focus();
+      return;
+    }
+    sendAction({ type: "chat", text });
+    chatInput.value = "";
+  });
   resultReviewBtn.addEventListener("click", dismissResultModal);
   resultModal.addEventListener("click", (event) => {
     if (event.target === resultModal) {
@@ -819,9 +960,11 @@
 
   i18n.applyDom();
   updateDocumentTitle();
+  renderChat(false);
   i18n.onChange(() => {
     updateDocumentTitle();
     renderGame();
+    renderChat(false);
   });
 
   // Startup: resolve URL ?code= and sessionStorage

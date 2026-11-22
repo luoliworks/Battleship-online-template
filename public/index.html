@@ -59,6 +59,16 @@
 
       <div id="game-toast" class="alert hidden"></div>
 
+      <div id="reset-banner" class="alert warning hidden">
+        <div class="between">
+          <span id="reset-banner-text"></span>
+          <div class="row-actions">
+            <button id="accept-reset-btn" type="button" class="btn-primary btn-sm hidden" data-i18n="game.acceptResetBtn">Accept Reset</button>
+            <button id="cancel-reset-btn" type="button" class="btn-secondary btn-sm" data-i18n="game.cancelResetBtn">Cancel</button>
+          </div>
+        </div>
+      </div>
+
       <div class="card" style="margin-bottom: 16px;">
         <div class="status-bar" style="margin-bottom: 0;">
           <div>
@@ -66,6 +76,7 @@
             <div id="phase-subtitle" class="muted"></div>
           </div>
           <div id="action-controls" class="row-actions">
+            <button id="reset-game-btn" type="button" class="btn-secondary hidden" data-i18n="game.resetGameBtn">Reset Game</button>
             <button id="rematch-btn" type="button" class="btn-primary hidden" data-i18n="game.rematchBtn">Rematch</button>
           </div>
         </div>
@@ -96,6 +107,18 @@
         <span class="legend-item"><span class="legend-swatch" style="background: rgba(249, 115, 22, 0.38); border-color: #f97316;"></span><span data-i18n="legend.hit">✕ Hit</span></span>
         <span class="legend-item"><span class="legend-swatch" style="background: rgba(185, 28, 28, 0.7); border-color: #f87171;"></span><span data-i18n="legend.sunk">☠ Sunk</span></span>
       </div>
+
+      <section class="card chat-panel" aria-label="Room Chat">
+        <div class="between chat-header">
+          <h2 style="margin: 0;" data-i18n="chat.title">Room Chat</h2>
+          <span id="chat-count" class="muted"></span>
+        </div>
+        <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
+        <form id="chat-form" class="chat-form">
+          <input id="chat-input" type="text" maxlength="200" data-i18n-placeholder="chat.placeholder" placeholder="Type a message (max 200 chars)..." autocomplete="off">
+          <button id="chat-send-btn" type="submit" class="btn-primary btn-sm" data-i18n="chat.sendBtn">Send</button>
+        </form>
+      </section>
     </div>
   </div>
 

@@ -476,4 +476,148 @@ describe("Pure Battleship Core Engine", () => {
     assert.equal(r3Vote2.round, 3);
     assert.equal(r3Vote2.startingPlayer, "p1");
   });
+
+  it("handles mutual reset_game and cancel_reset across phases while resetting back to Round 1", () => {
+    const waitingState = seatPlayer(createInitialState(100), "p1", "Alice", 101);
+    assert.equal(
+      applyAction(waitingState, "p1", { type: "reset_game" }, 102).ok,
+      false,
+    );
+    assert.equal(
+      applyAction(waitingState, "p1", { type: "cancel_reset" }, 103).ok,
+      false,
+    );
+
+    // Place ships in PLACING -> P1 places, P2 still placing -> mutual reset resets P1 ready state
+    let placingState = seatPlayer(waitingState, "p2", "Bob", 104);
+    placingState = (
+      applyAction(placingState, "p1", { type: "place_ships", ships: P1_SHIPS }, 105) as {
+        ok: true;
+        state: GameState;
+      }
+    ).state;
+    const placingVote1 = applyAction(placingState, "p1", { type: "reset_game" }, 106);
+    assert.equal(placingVote1.ok, true);
+    assert.equal(getPlayerView(placingVote1.state, "p1").self.resetVoted, true);
+    assert.equal(getPlayerView(placingVote1.state, "p2").opponent.resetVoted, true);
+
+    const placingReset = applyAction(
+      placingVote1.state,
+      "p2",
+      { type: "reset_game" },
+      107,
+    );
+    assert.equal(placingReset.ok, true);
+    assert.equal(placingReset.state.phase, "PLACING");
+    assert.equal(placingReset.state.round, 1);
+    assert.equal(placingReset.state.players.p1.ready, false);
+    assert.deepEqual(placingReset.state.players.p1.ships, []);
+
+    // Advance into PLAYING (simulate Round 2 starter p2 mid-game reset)
+    let playingState = setupPlayingState();
+    playingState = {
+      ...playingState,
+      round: 2,
+      startingPlayer: "p2",
+      currentTurn: "p2",
+    };
+    playingState = (
+      applyAction(playingState, "p2", { type: "fire", x: 0, y: 0 }, 2000) as {
+        ok: true;
+        state: GameState;
+      }
+    ).state;
+
+    // Single reset vote keeps PLAYING, cancel_reset clears vote
+    const vote1 = applyAction(playingState, "p1", { type: "reset_game" }, 2001);
+    assert.equal(vote1.ok, true);
+    assert.equal(vote1.state.phase, "PLAYING");
+    assert.deepEqual(vote1.state.resetVotes, { p1: true, p2: false });
+
+    const cancelled = applyAction(vote1.state, "p2", { type: "cancel_reset" }, 2002);
+    assert.equal(cancelled.ok, true);
+    assert.equal(cancelled.state.phase, "PLAYING");
+    assert.deepEqual(cancelled.state.resetVotes, { p1: false, p2: false });
+    assert.equal(cancelled.state.round, 2);
+
+    // Mutual confirmation resets back to Round 1 PLACING with p1 starter & preserved names
+    const voteAgain = (
+      applyAction(cancelled.state, "p1", { type: "reset_game" }, 2003) as {
+        ok: true;
+        state: GameState;
+      }
+    ).state;
+    const vote2 = applyAction(voteAgain, "p2", { type: "reset_game" }, 2004);
+    assert.equal(vote2.ok, true);
+    assert.equal(vote2.state.phase, "PLACING");
+    assert.equal(vote2.state.round, 1);
+    assert.equal(vote2.state.startingPlayer, "p1");
+    assert.equal(vote2.state.currentTurn, null);
+    assert.equal(vote2.state.winner, null);
+    assert.equal(vote2.state.lastShot, null);
+    assert.deepEqual(vote2.state.resetVotes, { p1: false, p2: false });
+    assert.deepEqual(vote2.state.rematchVotes, { p1: false, p2: false });
+    assert.equal(vote2.state.players.p1.displayName, "Alice");
+    assert.equal(vote2.state.players.p2.displayName, "Bob");
+    assert.deepEqual(vote2.state.players.p1.ships, []);
+    assert.deepEqual(vote2.state.players.p2.ships, []);
+    assert.deepEqual(vote2.state.players.p1.shotsFired, []);
+    assert.deepEqual(vote2.state.players.p2.shotsFired, []);
+
+    // Rejected in FINISHED
+    let finishedState = setupPlayingState();
+    const p1WinTargets = [
+      { x: 3, y: 1 },
+      { x: 3, y: 2 },
+      { x: 3, y: 3 },
+      { x: 0, y: 5 },
+      { x: 1, y: 5 },
+      { x: 5, y: 0 },
+      { x: 5, y: 1 },
+    ];
+    const p2MissTargets = [
+      { x: 1, y: 1 },
+      { x: 1, y: 2 },
+      { x: 1, y: 3 },
+      { x: 1, y: 4 },
+      { x: 2, y: 2 },
+      { x: 2, y: 3 },
+    ];
+    for (let i = 0; i < p1WinTargets.length; i += 1) {
+      finishedState = (
+        applyAction(
+          finishedState,
+          "p1",
+          { type: "fire", ...p1WinTargets[i]! },
+          3000 + i * 2,
+        ) as {
+          ok: true;
+          state: GameState;
+        }
+      ).state;
+      if (finishedState.phase === "FINISHED") {
+        break;
+      }
+      finishedState = (
+        applyAction(
+          finishedState,
+          "p2",
+          { type: "fire", ...p2MissTargets[i]! },
+          3001 + i * 2,
+        ) as {
+          ok: true;
+          state: GameState;
+        }
+      ).state;
+    }
+    assert.equal(finishedState.phase, "FINISHED");
+    assert.equal(
+      applyAction(finishedState, "p1", { type: "reset_game" }, 4000).ok,
+      false,
+    );
+    assert.equal(
+      applyAction(finishedState, "p1", { type: "cancel_reset" }, 4001).ok,
+      false,
+    );
+  });
 });

@@ -1,7 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 import { applyAction, createInitialState, seatPlayer } from "../../core/engine.ts";
 import type {
+  ChatMessage,
   ClientAction,
+  ClientMessage,
   ErrorCode,
   GameState,
   PlayerId,
@@ -11,6 +13,9 @@ import { getPlayerView } from "../../core/view.ts";
 
 const STATE_KEY = "state";
 const SEATS_KEY = "seats";
+const CHAT_KEY = "chat";
+const MAX_CHAT_LENGTH = 200;
+const MAX_CHAT_HISTORY = 50;
 
 interface SeatInfo {
   normalizedName: string;
@@ -60,25 +65,33 @@ function sendEvent(ws: WebSocket, event: ServerEvent): void {
 export class GameRoom extends DurableObject {
   private stateCache: GameState | null = null;
   private seatsCache: SeatsMap | null = null;
+  private chatCache: ChatMessage[] | null = null;
 
   private async loadRoom(
     now: number,
-  ): Promise<{ state: GameState; seats: SeatsMap }> {
-    if (this.stateCache && this.seatsCache) {
-      return { state: this.stateCache, seats: this.seatsCache };
+  ): Promise<{ state: GameState; seats: SeatsMap; chat: ChatMessage[] }> {
+    if (this.stateCache && this.seatsCache && this.chatCache) {
+      return {
+        state: this.stateCache,
+        seats: this.seatsCache,
+        chat: this.chatCache,
+      };
     }
 
-    const [storedState, storedSeats] = await Promise.all([
+    const [storedState, storedSeats, storedChat] = await Promise.all([
       this.ctx.storage.get<GameState>(STATE_KEY),
       this.ctx.storage.get<SeatsMap>(SEATS_KEY),
+      this.ctx.storage.get<ChatMessage[]>(CHAT_KEY),
     ]);
 
     const state = storedState ?? createInitialState(now);
     const seats: SeatsMap = storedSeats ?? { p1: null, p2: null };
+    const chat: ChatMessage[] = Array.isArray(storedChat) ? storedChat : [];
 
     this.stateCache = state;
     this.seatsCache = seats;
-    return { state, seats };
+    this.chatCache = chat;
+    return { state, seats, chat };
   }
 
   private async saveRoom(state: GameState, seats: SeatsMap): Promise<void> {
@@ -88,6 +101,26 @@ export class GameRoom extends DurableObject {
       [STATE_KEY]: state,
       [SEATS_KEY]: seats,
     });
+  }
+
+  private async saveChat(chat: ChatMessage[]): Promise<void> {
+    this.chatCache = chat;
+    await this.ctx.storage.put(CHAT_KEY, chat);
+  }
+
+  private broadcastEvent(event: ServerEvent): void {
+    const payload = JSON.stringify(event);
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = getSocketAttachment(ws);
+      if (!att) {
+        continue;
+      }
+      try {
+        ws.send(payload);
+      } catch {
+        // Socket already closed or closing.
+      }
+    }
   }
 
   private broadcastState(state: GameState, excludeWs?: WebSocket): void {
@@ -146,6 +179,7 @@ export class GameRoom extends DurableObject {
 
     this.stateCache = null;
     this.seatsCache = null;
+    this.chatCache = null;
     await this.ctx.storage.deleteAll();
   }
 
@@ -201,7 +235,11 @@ export class GameRoom extends DurableObject {
     }
 
     const now = Date.now();
-    const { state: currentState, seats: currentSeats } = await this.loadRoom(now);
+    const {
+      state: currentState,
+      seats: currentSeats,
+      chat: currentChat,
+    } = await this.loadRoom(now);
     const normalizedName = displayName.toLowerCase();
 
     let playerId: PlayerId | null = null;
@@ -269,6 +307,10 @@ export class GameRoom extends DurableObject {
     const nextState = seatPlayer(currentState, playerId, displayName, now);
     await this.saveRoom(nextState, nextSeats);
     this.broadcastState(nextState);
+    sendEvent(server, {
+      type: "chat_history",
+      messages: currentChat,
+    });
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -282,13 +324,13 @@ export class GameRoom extends DurableObject {
       return;
     }
 
-    let action: ClientAction;
+    let parsed: ClientMessage;
     try {
       const text =
         typeof message === "string"
           ? message
           : new TextDecoder().decode(message);
-      action = JSON.parse(text) as ClientAction;
+      parsed = JSON.parse(text) as ClientMessage;
     } catch {
       sendEvent(ws, {
         type: "error",
@@ -299,8 +341,44 @@ export class GameRoom extends DurableObject {
     }
 
     const now = Date.now();
-    const { state, seats } = await this.loadRoom(now);
-    const result = applyAction(state, att.playerId, action, now);
+    const { state, seats, chat } = await this.loadRoom(now);
+
+    if (parsed && typeof parsed === "object" && parsed.type === "chat") {
+      const text = typeof parsed.text === "string" ? parsed.text.trim() : "";
+      if (text.length === 0) {
+        sendEvent(ws, {
+          type: "error",
+          code: "INVALID_ACTION",
+          message: "聊天消息不能为空",
+        });
+        return;
+      }
+      if (text.length > MAX_CHAT_LENGTH) {
+        sendEvent(ws, {
+          type: "error",
+          code: "INVALID_ACTION",
+          message: "聊天消息不能超过 200 个字符",
+        });
+        return;
+      }
+
+      const chatMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        senderId: att.playerId,
+        senderName: att.displayName,
+        text,
+        createdAt: now,
+      };
+      const nextChat = [...chat, chatMsg].slice(-MAX_CHAT_HISTORY);
+      await this.saveChat(nextChat);
+      this.broadcastEvent({
+        type: "chat",
+        message: chatMsg,
+      });
+      return;
+    }
+
+    const result = applyAction(state, att.playerId, parsed as ClientAction, now);
     if (!result.ok) {
       sendEvent(ws, {
         type: "error",

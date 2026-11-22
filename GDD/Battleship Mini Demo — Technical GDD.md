@@ -15,6 +15,7 @@
   * 基于“昵称绑定 \+ `sessionStorage`”的刷新重连、跨设备找回座位、同浏览器双开自测与满员拦截  
   * 对手在线状态实时指示  
   * 中英文双语 UI（英文默认 \+ 实时切换）与关键阶段弹窗体验（布阵弹窗 / 结算弹窗）  
+  * 适配层内置房间聊天（最近 50 条持久化、断线重连可回溯）与对局中双人确认重置（`Reset Game`）  
   * Cloudflare 生产环境与 `dev` 隔离环境（`--env dev`）双环境部署支持  
   * 纯游戏逻辑内核与底层平台外壳彻底解耦（便于后续将 `src/core/` 替换为 Tower Chess 或其他回合制/策略游戏）
 
@@ -35,7 +36,10 @@
   4. `FINISHED`：任一方 3 艘船全部被击沉即判负；对局结束时向双方公开完整棋盘，并弹出**居中胜负结算弹窗**，支持点击 `Review Board`（关闭弹窗复盘查看双方完整棋盘，顶栏仍保留 `Rematch`）或 `Rematch`（重置回 `PLACING` 再来一局），亦可由 Admin 重置或销毁房间。  
 * **再来一局（双人确认 \+ 轮换先手）**：  
   * 在 `FINISHED` 阶段，玩家点击“再来一局”发送 `rematch`，服务端记录其投票并广播状态（已点击方界面显示“等待对手确认再来一局...”），防止单方手快清屏影响复盘。  
-  * 当 **`p1` 和 `p2` 均确认**后，自动切换下一局先手方（`p1` 与 `p2` 互换），清空双方船只、弹孔与投票记录，状态重置回 `PLACING`。
+  * 当 **`p1` 和 `p2` 均确认**后，自动切换下一局先手方（`p1` 与 `p2` 互换），清空双方船只、弹孔与投票记录，状态重置回 `PLACING`。  
+* **随时重置对局（`Reset Game`，双人确认）**：  
+  * 在 `PLACING` 或 `PLAYING` 阶段，任一玩家点击 `Reset Game` 发送 `reset_game` 后，双方顶栏收到提示横幅，对方可点击同意（再发 `reset_game`）或拒绝（`cancel_reset`），发起方亦可取消。  
+  * 双方确认后，保留当前双方座位、昵称与房间聊天记录，将棋局重置回 **Round 1** `PLACING`（由 `p1` 先手），清空双方船只、弹孔与投票记录。
 
 ---
 
@@ -153,13 +157,18 @@ battleship-demo/
 2. **WebSocket 建连（`/ws?code=<CODE>&name=<ENCODED_NICKNAME>`）**：  
    1. **入口防绕过校验**：即使客户端跳过预检直接连 `/ws`，入口 Worker 仍必须先查询 `AdminRegistry`；无效或过期的邀请码直接拒绝，**绝不拉起新的 `GameRoom` 实例**。  
    2. 校验通过后，由 `GameRoom` 执行座位分配/找回/满员拦截。  
-3. **客户端 → 服务端（`ClientAction`）**：  
-   * 摆船锁定：`{ "type": "place_ships", "ships": [{ "id": "s1", "x": 0, "y": 0, "len": 3, "dir": "H" }, ...] }`  
-   * 开火：`{ "type": "fire", "x": 2, "y": 4 }`  
-   * 再来一局投票：`{ "type": "rematch" }`  
+3. **客户端 → 服务端（`ClientMessage` = `ClientAction` | 适配层 `chat`）**：  
+   * 摆船锁定（核心动作）：`{ "type": "place_ships", "ships": [{ "id": "s1", "x": 0, "y": 0, "len": 3, "dir": "H" }, ...] }`  
+   * 开火（核心动作）：`{ "type": "fire", "x": 2, "y": 4 }`  
+   * 再来一局投票（核心动作）：`{ "type": "rematch" }`  
+   * 发起/同意重置对局（核心动作）：`{ "type": "reset_game" }`  
+   * 取消/拒绝重置（核心动作）：`{ "type": "cancel_reset" }`  
+   * 发送房间聊天（仅适配层处理，不进 `src/core/`，限制 1–200 字符）：`{ "type": "chat", "text": "..." }`  
 4. **服务端 → 客户端（`ServerEvent`）**：  
    1. 状态与在线态快照：`{ "type": "state", "view": PlayerView, "presence": { "selfOnline": true, "opponentOnline": boolean } }`（首次连入、状态变化、断线重连以及对手上线/离线时均下发最新快照，`presence` 由外壳根据当前活跃连接动态计算，不写入纯内核）  
-   2. 明确错误提示：`{ "type": "error", "code": "ROOM_FULL" | "INVALID_CODE" | "EXPIRED_CODE" | "INVALID_ACTION" | "REPLACED_BY_NEW_SESSION" | "ROOM_RESET" | "ROOM_CLOSED", "message": "..." }`  
+   2. 房间聊天历史（新连接建立时下发，最多最近 50 条）：`{ "type": "chat_history", "messages": ChatMessage[] }`  
+   3. 实时聊天消息广播：`{ "type": "chat", "message": ChatMessage }`  
+   4. 明确错误提示：`{ "type": "error", "code": "ROOM_FULL" | "INVALID_CODE" | "EXPIRED_CODE" | "INVALID_ACTION" | "REPLACED_BY_NEW_SESSION" | "ROOM_RESET" | "ROOM_CLOSED", "message": "..." }`  
 5. **自定义 WebSocket Close Code 约定**：  
    1. `4001`：`ROOM_FULL`（房间已满，请联系 Admin）  
    2. `4002`：`REPLACED_BY_NEW_SESSION`（同名玩家已在其他设备或窗口接入）  
@@ -192,7 +201,10 @@ battleship-demo/
 * **胜负结算弹窗（`FINISHED` 阶段）**：  
   * 任一方 3 艘船全部击沉进入 `FINISHED` 后，自动弹出居中结算弹窗展示胜负结果与最后一炮摘要，提供两个按钮：`Review Board`（仅关闭本局结算弹窗便于查看公开后的敌方完整棋盘，顶栏同时保留 `Rematch` 按钮）与 `Rematch`（投票或接受再来一局；若在弹窗未关闭前已投票，也可点击按钮进入等待状态）。  
 * **退出 / 切换昵称**：  
-  * `Leave / Switch Name` 按钮仅置于游戏主界面顶栏，不放在布阵弹窗内；点击后清空当前会话的 `sessionStorage` 凭据、主动关闭 WebSocket 并返回入房表单页。
+  * `Leave / Switch Name` 按钮仅置于游戏主界面顶栏，不放在布阵弹窗内；点击后清空当前会话的 `sessionStorage` 凭据、主动关闭 WebSocket 并返回入房表单页。  
+* **房间内聊天面板与随时重置**：  
+  * **常驻紧凑聊天区**：固定位于双棋盘与图例下方，仅使用 `textContent` 安全渲染消息（含发送者、时间与文本，自己与对手分左右高亮显示）。房间聊天完全由适配层负责（Node 内存 / Cloudflare DO SQLite），每个房间保留最近 **50** 条消息（单条上限 **200** 字符），F5 刷新或断线重连可完整回看；仅在 Admin **重置房间** 或 **销毁房间** 时随房间存储一并清空。  
+  * **随时重置对局（`Reset Game`）**：在 `PLACING` / `PLAYING` 阶段显示在状态操作栏；任一方发起重置后弹出确认横幅（`Accept Reset` / `Decline` / `Cancel`），双方同意后重置回 Round 1 `PLACING` 且保留座位与聊天记录。
 
 ## **5.3 对手在线状态指示**
 
@@ -216,5 +228,6 @@ battleship-demo/
    * 输入第 3 个昵称进入已满房间时，前端准确弹窗提示“房间已满，请联系 Admin”。  
 5. **在线状态与防作弊验证**：一方关掉标签页后另一方界面实时显示“对手已离线”，重连后恢复“对手在线”；对局未结束时在浏览器 Network → WS 面板检查收到的 JSON，确认不含对手未击沉船只坐标。  
 6. **重置与销毁验证**：Admin 点击“重置房间”后，原连接被断开、房间清空但原邀请码仍可重新进房开新局；点击“销毁房间”后，原邀请码立即失效并无法重连。  
-7. **多语言、弹窗交互与双环境构建校验**：首次访问默认为英文且支持一键切换中文并持久化；`PLACING` 弹出含 6×6 预览的布阵弹窗、`FINISHED` 弹出胜负弹窗并支持 `Review Board` 与 `Rematch`；顶栏 `Leave / Switch Name` 可清空会话退回入房页；`npm test`、`npm run typecheck` 及 `npx wrangler deploy --dry-run --env dev` 均通过。
+7. **多语言、弹窗交互与双环境构建校验**：首次访问默认为英文且支持一键切换中文并持久化；`PLACING` 弹出含 6×6 预览的布阵弹窗、`FINISHED` 弹出胜负弹窗并支持 `Review Board` 与 `Rematch`；顶栏 `Leave / Switch Name` 可清空会话退回入房页；`npm test`、`npm run typecheck` 及 `npx wrangler deploy --dry-run --env dev` 均通过。  
+8. **房间聊天与双人确认 `Reset Game` 校验**：对局双方可在棋盘下方聊天区实时互通消息（最多 200 字、保留最近 50 条、刷新重连自动恢复）；Admin 重置/销毁房间后聊天记录被清空；对局中任一方发起 `Reset Game`、对方同意后棋局恢复 Round 1 `PLACING`（`p1` 先手）且双方座位与聊天记录保持完整。
 

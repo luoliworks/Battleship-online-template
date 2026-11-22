@@ -62,6 +62,10 @@ export interface GameState {
     p1: boolean;
     p2: boolean;
   };
+  resetVotes: {
+    p1: boolean;
+    p2: boolean;
+  };
   createdAt: number;
   updatedAt: number;
 }
@@ -69,7 +73,13 @@ export interface GameState {
 export type ClientAction =
   | { type: "place_ships"; ships: ShipPlacement[] }
   | { type: "fire"; x: number; y: number }
-  | { type: "rematch" };
+  | { type: "rematch" }
+  | { type: "reset_game" }
+  | { type: "cancel_reset" };
+
+export type ClientMessage =
+  | ClientAction
+  | { type: "chat"; text: string };
 
 export type ErrorCode =
   | "ROOM_FULL"
@@ -97,12 +107,14 @@ export interface PlayerView {
     displayName: string | null;
     ready: boolean;
     rematchVoted: boolean;
+    resetVoted: boolean;
   };
   opponent: {
     id: PlayerId;
     displayName: string | null;
     ready: boolean;
     rematchVoted: boolean;
+    resetVoted: boolean;
     shipsRemaining: number;
   };
   myBoard: {
@@ -120,6 +132,16 @@ export interface PresenceState {
   opponentOnline: boolean;
 }
 
+export interface ChatMessage {
+  id: string;
+  senderId: PlayerId;
+  senderName: string;
+  text: string;
+  createdAt: number;
+}
+
 export type ServerEvent =
   | { type: "state"; view: PlayerView; presence: PresenceState }
+  | { type: "chat_history"; messages: ChatMessage[] }
+  | { type: "chat"; message: ChatMessage }
   | { type: "error"; code: ErrorCode; message: string };

@@ -363,7 +363,7 @@ describe("Node.js Adapter Server", () => {
       const p1 = await connectWsClient(
         `${wsBaseUrl}/ws?code=${code}&name=Alice`,
       );
-      const p1Init = await p1.nextEvent();
+      const p1Init = await p1.nextEvent((ev) => ev.type === "state");
       assert.equal(p1Init.type, "state");
       assert.equal(p1Init.view.phase, "WAITING");
       assert.equal(p1Init.view.self.id, "p1");
@@ -371,13 +371,13 @@ describe("Node.js Adapter Server", () => {
 
       // Player 2 joins -> PLACING & both online
       const p2 = await connectWsClient(`${wsBaseUrl}/ws?code=${code}&name=Bob`);
-      const p2Init = await p2.nextEvent();
+      const p2Init = await p2.nextEvent((ev) => ev.type === "state");
       assert.equal(p2Init.type, "state");
       assert.equal(p2Init.view.phase, "PLACING");
       assert.equal(p2Init.view.self.id, "p2");
       assert.equal(p2Init.presence.opponentOnline, true);
 
-      const p1OnP2Join = await p1.nextEvent();
+      const p1OnP2Join = await p1.nextEvent((ev) => ev.type === "state");
       assert.equal(p1OnP2Join.type, "state");
       assert.equal(p1OnP2Join.view.phase, "PLACING");
       assert.equal(p1OnP2Join.presence.opponentOnline, true);
@@ -405,19 +405,19 @@ describe("Node.js Adapter Server", () => {
       const p1OldClosed = await p1.waitForClose();
       assert.equal(p1OldClosed.code, 4002);
 
-      const p1NewState = await p1New.nextEvent();
+      const p1NewState = await p1New.nextEvent((ev) => ev.type === "state");
       assert.equal(p1NewState.type, "state");
       assert.equal(p1NewState.view.self.id, "p1");
       assert.equal(p1NewState.presence.opponentOnline, true);
 
       // Bob remains online and sees opponent still online (no offline flicker)
-      const p2AfterTakeover = await p2.nextEvent();
+      const p2AfterTakeover = await p2.nextEvent((ev) => ev.type === "state");
       assert.equal(p2AfterTakeover.type, "state");
       assert.equal(p2AfterTakeover.presence.opponentOnline, true);
 
       // Disconnect p1New -> Bob immediately gets opponentOnline: false
       await p1New.close();
-      const p2OnP1Leave = await p2.nextEvent();
+      const p2OnP1Leave = await p2.nextEvent((ev) => ev.type === "state");
       assert.equal(p2OnP1Leave.type, "state");
       assert.equal(p2OnP1Leave.presence.opponentOnline, false);
 
@@ -456,23 +456,23 @@ describe("Node.js Adapter Server", () => {
       const p1 = await connectWsClient(
         `${wsBaseUrl}/ws?code=${code}&name=Alice`,
       );
-      await p1.nextEvent();
+      await p1.nextEvent((ev) => ev.type === "state");
       const p2 = await connectWsClient(`${wsBaseUrl}/ws?code=${code}&name=Bob`);
-      await p2.nextEvent();
-      await p1.nextEvent();
+      await p2.nextEvent((ev) => ev.type === "state");
+      await p1.nextEvent((ev) => ev.type === "state");
 
       // Both place ships
       p1.ws.send(JSON.stringify({ type: "place_ships", ships: P1_SHIPS }));
-      const p1AfterPlace = await p1.nextEvent();
-      const p2AfterP1Place = await p2.nextEvent();
+      const p1AfterPlace = await p1.nextEvent((ev) => ev.type === "state");
+      const p2AfterP1Place = await p2.nextEvent((ev) => ev.type === "state");
       assert.equal(p1AfterPlace.type, "state");
       assert.equal(p2AfterP1Place.type, "state");
       assert.equal(p2AfterP1Place.view.opponent.ready, true);
       assert.deepEqual(p2AfterP1Place.view.enemyBoard.revealedShips, []);
 
       p2.ws.send(JSON.stringify({ type: "place_ships", ships: P2_SHIPS }));
-      const p1Playing = await p1.nextEvent();
-      const p2Playing = await p2.nextEvent();
+      const p1Playing = await p1.nextEvent((ev) => ev.type === "state");
+      const p2Playing = await p2.nextEvent((ev) => ev.type === "state");
       assert.equal(p1Playing.type, "state");
       assert.equal(p2Playing.type, "state");
       assert.equal(p1Playing.view.phase, "PLAYING");
@@ -485,14 +485,14 @@ describe("Node.js Adapter Server", () => {
 
       // Illegal out-of-turn fire from p2 -> INVALID_ACTION sent only to p2
       p2.ws.send(JSON.stringify({ type: "fire", x: 0, y: 0 }));
-      const p2Err = await p2.nextEvent();
+      const p2Err = await p2.nextEvent((ev) => ev.type === "error");
       assert.equal(p2Err.type, "error");
       assert.equal(p2Err.code, "INVALID_ACTION");
 
       // Legal fire from p1 hitting P2's s1 at (3,1) -> turn switches to p2
       p1.ws.send(JSON.stringify({ type: "fire", x: 3, y: 1 }));
-      const p1AfterFire = await p1.nextEvent();
-      const p2AfterFire = await p2.nextEvent();
+      const p1AfterFire = await p1.nextEvent((ev) => ev.type === "state");
+      const p2AfterFire = await p2.nextEvent((ev) => ev.type === "state");
       assert.equal(p1AfterFire.type, "state");
       assert.equal(p2AfterFire.type, "state");
       assert.equal(p1AfterFire.view.lastShot?.result, "hit");
@@ -526,10 +526,10 @@ describe("Node.js Adapter Server", () => {
       const p1 = await connectWsClient(
         `${wsBaseUrl}/ws?code=${code}&name=Alice`,
       );
-      await p1.nextEvent();
+      await p1.nextEvent((ev) => ev.type === "state");
       const p2 = await connectWsClient(`${wsBaseUrl}/ws?code=${code}&name=Bob`);
-      await p2.nextEvent();
-      await p1.nextEvent();
+      await p2.nextEvent((ev) => ev.type === "state");
+      await p1.nextEvent((ev) => ev.type === "state");
       assert.equal(handle.getActiveRoomCount(), 1);
 
       // Reset room
@@ -557,7 +557,7 @@ describe("Node.js Adapter Server", () => {
       const freshP1 = await connectWsClient(
         `${wsBaseUrl}/ws?code=${code}&name=NewPlayer`,
       );
-      const freshState = await freshP1.nextEvent();
+      const freshState = await freshP1.nextEvent((ev) => ev.type === "state");
       assert.equal(freshState.type, "state");
       assert.equal(freshState.view.phase, "WAITING");
       assert.equal(freshState.view.round, 1);
@@ -646,6 +646,170 @@ describe("Node.js Adapter Server", () => {
 
       const traversalRes = await fetch(`${baseUrl}/%2e%2e%2fpackage.json`);
       assert.equal(traversalRes.status, 403);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it("supports persistent in-room chat (max 50), mutual reset_game preserving chat, and admin reset clearing chat", async () => {
+    let clock = 1_700_000_000_000;
+    const { handle, baseUrl, wsBaseUrl } = await startTestServer({
+      adminToken: "admin-123",
+      now: () => clock,
+    });
+
+    try {
+      const headers = {
+        Authorization: "Bearer admin-123",
+        "Content-Type": "application/json",
+      };
+      const createRes = await fetch(`${baseUrl}/api/admin/rooms`, {
+        method: "POST",
+        headers,
+        body: "{}",
+      });
+      const { code } = (await createRes.json()) as { code: string };
+
+      const p1 = await connectWsClient(
+        `${wsBaseUrl}/ws?code=${code}&name=Alice`,
+      );
+      await p1.nextEvent((ev) => ev.type === "state");
+      const p1InitHistory = await p1.nextEvent((ev) => ev.type === "chat_history");
+      assert.equal(p1InitHistory.type, "chat_history");
+      assert.deepEqual(p1InitHistory.messages, []);
+
+      const p2 = await connectWsClient(`${wsBaseUrl}/ws?code=${code}&name=Bob`);
+      await p2.nextEvent((ev) => ev.type === "state");
+      await p2.nextEvent((ev) => ev.type === "chat_history");
+      await p1.nextEvent((ev) => ev.type === "state");
+
+      // Invalid chat rejected only for sender
+      p1.ws.send(JSON.stringify({ type: "chat", text: "   " }));
+      const emptyErr = await p1.nextEvent((ev) => ev.type === "error");
+      assert.equal(emptyErr.type, "error");
+      assert.equal(emptyErr.code, "INVALID_ACTION");
+
+      p1.ws.send(JSON.stringify({ type: "chat", text: "x".repeat(201) }));
+      const longErr = await p1.nextEvent((ev) => ev.type === "error");
+      assert.equal(longErr.type, "error");
+      assert.equal(longErr.code, "INVALID_ACTION");
+
+      // Valid chat broadcasts to both
+      clock += 1000;
+      p1.ws.send(JSON.stringify({ type: "chat", text: "Hello Bob!" }));
+      const p1Chat = await p1.nextEvent((ev) => ev.type === "chat");
+      const p2Chat = await p2.nextEvent((ev) => ev.type === "chat");
+      assert.equal(p1Chat.type, "chat");
+      assert.equal(p2Chat.type, "chat");
+      assert.equal(p1Chat.message.senderId, "p1");
+      assert.equal(p1Chat.message.senderName, "Alice");
+      assert.equal(p1Chat.message.text, "Hello Bob!");
+      assert.equal(p2Chat.message.text, "Hello Bob!");
+
+      // Send 54 more messages -> total 55, history caps at last 50
+      for (let i = 1; i <= 54; i += 1) {
+        clock += 100;
+        p2.ws.send(JSON.stringify({ type: "chat", text: `msg-${i}` }));
+        await p1.nextEvent((ev) => ev.type === "chat");
+        await p2.nextEvent((ev) => ev.type === "chat");
+      }
+
+      // Reconnect p2 via takeover/reconnect and verify 50-message chat_history
+      await p2.close();
+      await p1.nextEvent((ev) => ev.type === "state");
+      const p2Reconnected = await connectWsClient(
+        `${wsBaseUrl}/ws?code=${code}&name=Bob`,
+      );
+      await p2Reconnected.nextEvent((ev) => ev.type === "state");
+      const p2History = await p2Reconnected.nextEvent(
+        (ev) => ev.type === "chat_history",
+      );
+      await p1.nextEvent((ev) => ev.type === "state");
+      assert.equal(p2History.type, "chat_history");
+      assert.equal(p2History.messages.length, 50);
+      assert.equal(p2History.messages[0]?.text, "msg-5");
+      assert.equal(p2History.messages[49]?.text, "msg-54");
+
+      // Enter PLAYING and test cancel_reset + mutual reset_game preserving chat
+      p1.ws.send(JSON.stringify({ type: "place_ships", ships: P1_SHIPS }));
+      await p1.nextEvent((ev) => ev.type === "state");
+      await p2Reconnected.nextEvent((ev) => ev.type === "state");
+
+      p2Reconnected.ws.send(
+        JSON.stringify({ type: "place_ships", ships: P2_SHIPS }),
+      );
+      const p1Playing = await p1.nextEvent((ev) => ev.type === "state");
+      assert.equal(p1Playing.type, "state");
+      assert.equal(p1Playing.view.phase, "PLAYING");
+      await p2Reconnected.nextEvent((ev) => ev.type === "state");
+
+      p1.ws.send(JSON.stringify({ type: "fire", x: 0, y: 0 }));
+      await p1.nextEvent((ev) => ev.type === "state");
+      await p2Reconnected.nextEvent((ev) => ev.type === "state");
+
+      // p1 requests reset -> p2 declines via cancel_reset
+      p1.ws.send(JSON.stringify({ type: "reset_game" }));
+      const p2Prompt = await p2Reconnected.nextEvent((ev) => ev.type === "state");
+      assert.equal(p2Prompt.type, "state");
+      assert.equal(p2Prompt.view.opponent.resetVoted, true);
+      await p1.nextEvent((ev) => ev.type === "state");
+
+      p2Reconnected.ws.send(JSON.stringify({ type: "cancel_reset" }));
+      const p1Cancelled = await p1.nextEvent((ev) => ev.type === "state");
+      assert.equal(p1Cancelled.type, "state");
+      assert.equal(p1Cancelled.view.phase, "PLAYING");
+      assert.equal(p1Cancelled.view.self.resetVoted, false);
+      assert.equal(p1Cancelled.view.opponent.resetVoted, false);
+      await p2Reconnected.nextEvent((ev) => ev.type === "state");
+
+      // Mutual reset_game resets back to Round 1 PLACING while preserving chat
+      p1.ws.send(JSON.stringify({ type: "reset_game" }));
+      await p1.nextEvent((ev) => ev.type === "state");
+      await p2Reconnected.nextEvent((ev) => ev.type === "state");
+
+      p2Reconnected.ws.send(JSON.stringify({ type: "reset_game" }));
+      const p1AfterReset = await p1.nextEvent((ev) => ev.type === "state");
+      const p2AfterReset = await p2Reconnected.nextEvent(
+        (ev) => ev.type === "state",
+      );
+      assert.equal(p1AfterReset.type, "state");
+      assert.equal(p2AfterReset.type, "state");
+      assert.equal(p1AfterReset.view.phase, "PLACING");
+      assert.equal(p1AfterReset.view.round, 1);
+      assert.equal(p1AfterReset.view.startingPlayer, "p1");
+      assert.equal(p1AfterReset.view.self.displayName, "Alice");
+      assert.equal(p1AfterReset.view.opponent.displayName, "Bob");
+      assert.deepEqual(p1AfterReset.view.myBoard.ships, []);
+      assert.deepEqual(p1AfterReset.view.enemyBoard.myShots, []);
+
+      // Chat still works and retained previous history after mutual game reset
+      p1.ws.send(JSON.stringify({ type: "chat", text: "after mutual reset" }));
+      await p1.nextEvent((ev) => ev.type === "chat");
+      const p2AfterResetChat = await p2Reconnected.nextEvent(
+        (ev) => ev.type === "chat",
+      );
+      assert.equal(p2AfterResetChat.type, "chat");
+      assert.equal(p2AfterResetChat.message.text, "after mutual reset");
+
+      // Admin reset room (4003) clears chat history
+      const adminResetRes = await fetch(`${baseUrl}/api/admin/rooms/${code}/reset`, {
+        method: "POST",
+        headers,
+      });
+      assert.equal(adminResetRes.status, 200);
+      await p1.waitForClose();
+      await p2Reconnected.waitForClose();
+
+      const freshP1 = await connectWsClient(
+        `${wsBaseUrl}/ws?code=${code}&name=Alice`,
+      );
+      await freshP1.nextEvent((ev) => ev.type === "state");
+      const freshHistory = await freshP1.nextEvent(
+        (ev) => ev.type === "chat_history",
+      );
+      assert.equal(freshHistory.type, "chat_history");
+      assert.deepEqual(freshHistory.messages, []);
+      await freshP1.close();
     } finally {
       await handle.close();
     }

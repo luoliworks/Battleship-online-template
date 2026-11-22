@@ -69,6 +69,15 @@ function cloneState(state: GameState): GameState {
       p1: state.rematchVotes.p1,
       p2: state.rematchVotes.p2,
     },
+    resetVotes: state.resetVotes
+      ? {
+          p1: state.resetVotes.p1,
+          p2: state.resetVotes.p2,
+        }
+      : {
+          p1: false,
+          p2: false,
+        },
     createdAt: state.createdAt,
     updatedAt: state.updatedAt,
   };
@@ -108,6 +117,10 @@ export function createInitialState(now: number): GameState {
     winner: null,
     lastShot: null,
     rematchVotes: {
+      p1: false,
+      p2: false,
+    },
+    resetVotes: {
       p1: false,
       p2: false,
     },
@@ -337,12 +350,24 @@ function handleFire(
     next.phase = "FINISHED";
     next.winner = playerId;
     next.currentTurn = null;
+    next.resetVotes = { p1: false, p2: false };
   } else {
     // Fixed one shot per turn: always alternate turn after any legal shot.
     next.currentTurn = opponentId;
   }
 
   return { ok: true, state: next };
+}
+
+function resetPlayersForNewRound(next: GameState): void {
+  next.phase = "PLACING";
+  next.currentTurn = null;
+  next.winner = null;
+  next.lastShot = null;
+  next.rematchVotes = { p1: false, p2: false };
+  next.resetVotes = { p1: false, p2: false };
+  next.players.p1 = createEmptyPlayerState(next.players.p1.displayName);
+  next.players.p2 = createEmptyPlayerState(next.players.p2.displayName);
 }
 
 function handleRematch(
@@ -359,18 +384,51 @@ function handleRematch(
   next.updatedAt = now;
 
   if (next.rematchVotes.p1 && next.rematchVotes.p2) {
-    const nextStarter: PlayerId = next.startingPlayer === "p1" ? "p2" : "p1";
-    next.phase = "PLACING";
     next.round += 1;
-    next.startingPlayer = nextStarter;
-    next.currentTurn = null;
-    next.winner = null;
-    next.lastShot = null;
-    next.rematchVotes = { p1: false, p2: false };
-    next.players.p1 = createEmptyPlayerState(next.players.p1.displayName);
-    next.players.p2 = createEmptyPlayerState(next.players.p2.displayName);
+    next.startingPlayer = next.startingPlayer === "p1" ? "p2" : "p1";
+    resetPlayersForNewRound(next);
   }
 
+  return { ok: true, state: next };
+}
+
+function handleResetGame(
+  state: GameState,
+  playerId: PlayerId,
+  now: number,
+): ActionResult {
+  if (state.phase === "WAITING") {
+    return invalidAction("等待对手加入中，无需重置");
+  }
+  if (state.phase === "FINISHED") {
+    return invalidAction("对局已结束，请使用再来一局");
+  }
+
+  const next = cloneState(state);
+  next.resetVotes[playerId] = true;
+  next.updatedAt = now;
+
+  if (next.resetVotes.p1 && next.resetVotes.p2) {
+    next.round = 1;
+    next.startingPlayer = "p1";
+    resetPlayersForNewRound(next);
+  }
+
+  return { ok: true, state: next };
+}
+
+function handleCancelReset(
+  state: GameState,
+  _playerId: PlayerId,
+  now: number,
+): ActionResult {
+  if (state.phase !== "PLACING" && state.phase !== "PLAYING") {
+    return invalidAction("当前阶段不可取消重置");
+  }
+
+  const next = cloneState(state);
+  next.resetVotes = { p1: false, p2: false };
+  next.updatedAt = now;
   return { ok: true, state: next };
 }
 
@@ -391,6 +449,10 @@ export function applyAction(
       return handleFire(state, playerId, action.x, action.y, now);
     case "rematch":
       return handleRematch(state, playerId, now);
+    case "reset_game":
+      return handleResetGame(state, playerId, now);
+    case "cancel_reset":
+      return handleCancelReset(state, playerId, now);
     default:
       return invalidAction("不支持的操作类型");
   }
